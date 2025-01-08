@@ -79,12 +79,19 @@ function System() {
   }
   async function handleLogin() {
     let userInfo = {
-      username: "becamex4",
+      username: "becamex2",
       password: "vn123456",
       realm: "puc.com",
       webpucUrl: "https://180.148.0.217",
     };
-    const res = await window.lemon.login.login(userInfo);
+    const res = await window.lemon.login
+      .login(userInfo)
+      .then((resp) => {
+        alert("Login success");
+      })
+      .catch((err) => {
+        alert("Login failed");
+      });
     console.log(res);
   }
   return (

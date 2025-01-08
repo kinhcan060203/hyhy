@@ -7,7 +7,7 @@ function Call() {
   const [hookFlag, setHookFlag] = useState(1);
   const [duplexFlag, setDuplexFlag] = useState(1);
   const [modeCall, setModeCall] = useState(0);
-  const localStream = useRef(null);
+  const [blobUrl, setBlobUrl] = useState(null);
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const remoteAudioRef = useRef(null);
@@ -16,8 +16,9 @@ function Call() {
   let mediaStreamGuid = null;
   let hangupEvtGuid = null;
   let forceHangupEvtGuid = null;
+  const [socket, setSocket] = useState(null);
   const basedata_id =
-    "fd88c15f15d090841a29b5be71c004f0dc0bd25957a527a2fbc7442e92622fd0";
+    "fd88c15f15d090841a29b5be71c004f003b25cd33c48d20d3072b2c1bfaf2bfd";
 
   const basedataId_forward = "00082-890-2023020706-0--mcs.com";
 
@@ -27,11 +28,13 @@ function Call() {
       setCallState("talking")
     );
     const handleMediaStream = (callId, stream, type) => {
-      console.log("@type", type);
       if (type === "video_src" && localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
       } else if (type === "video_dst" && remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = stream;
+        handleMediaRecorder(callId, stream, type);
+        // streamToKafka(stream);
+        console.log("@stream", stream);
       } else if (type === "audio_dst" && remoteAudioRef.current) {
         remoteAudioRef.current.srcObject = stream;
       }
@@ -45,17 +48,94 @@ function Call() {
       localVideoRef.current.srcObject = null;
       remoteVideoRef.current.srcObject = null;
       remoteAudioRef.current.srcObject = null;
-      if (localStream.current) {
-        localStream.current.getTracks().forEach(function (track) {
-          track.stop();
-        });
-      }
     };
-    mediaStreamGuid = lemon.call.addMediaStream(handleMediaStream);
+    mediaStreamGuid = window.lemon.call.addMediaStream(handleMediaStream);
     hangupEvtGuid = window.lemon.call.addHangupEvt(onHangupEvt);
     forceHangupEvtGuid = window.lemon.call.addForceHangupEvt(onForceHangupEvt);
   }
+  const streamToKafka = async (mediaStream) => {
+    const videoTrack = mediaStream.getVideoTracks()[0];
+    const video = document.createElement("video");
+    video.srcObject = mediaStream;
+    video.play();
 
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+
+    // Set canvas dimensions based on video track
+    const [width, height] = [
+      videoTrack.getSettings().width,
+      videoTrack.getSettings().height,
+    ];
+    canvas.width = width;
+    canvas.height = height;
+    console.log("canvas", canvas);
+    const sendFrameToKafka = async () => {
+      // Draw the current video frame onto the canvas
+      ctx.drawImage(video, 0, 0, width, height);
+
+      // Convert the canvas to Blob (image frame)
+      canvas.toBlob(async (blob) => {
+        console.log("blob", blob);
+        if (blob) {
+          const buffer = await blob.arrayBuffer();
+
+          console.log("Sent frame to Kafka:", blob);
+        }
+
+        // Call again for the next frame
+        requestAnimationFrame(sendFrameToKafka);
+      }, "image/jpeg"); // Use desired format (e.g., 'image/jpeg' or 'image/png')
+    };
+    await sendFrameToKafka();
+  };
+  const handleMediaRecorder = (call_id, stream, type) => {
+    const mediaRecorder = new MediaRecorder(stream);
+
+    mediaRecorder.ondataavailable = async (event) => {
+      if (event.data.size > 0) {
+        const arrayBuffer = await event.data.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+
+        // Send Uint8Array directly through WebSocket
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(uint8Array);
+          console.log("Sent WebRTC stream data to WebSocket", uint8Array);
+        } else {
+          console.error("WebSocket is not open. Data not sent.");
+        }
+        console.log("Sent WebRTC stream data to Kafka", arrayBuffer);
+      }
+    };
+
+    mediaRecorder.start(200);
+    console.log("MediaRecorder started for call id:", call_id, "type:", type);
+  };
+
+  const handleMediaData = (blob, type) => {
+    console.log("Received media blob:", blob, "type:", type);
+    if (type === "video_dst") {
+      const blobUrl = URL.createObjectURL(blob);
+
+      setBlobUrl(blobUrl);
+    } else if (type === "audio_dst") {
+      const blobUrl = URL.createObjectURL(blob);
+      console.log("blobUrl", blobUrl);
+
+      if (audio) {
+        audio.src = blobUrl;
+        audio.play();
+        console.log("Audio stream set to:", blobUrl);
+
+        audio.onended = () => {
+          URL.revokeObjectURL(blobUrl);
+        };
+      } else {
+        console.error("Audio element not found");
+      }
+    }
+  };
+  async function sendDataOverWebSocket(data, type) {}
   function teardownCallHandlers() {
     if (hangupEvtGuid) {
       window.lemon.call.removeHangupEvt(hangupEvtGuid);
@@ -75,7 +155,7 @@ function Call() {
   }
 
   const handleIncomingCall = async (incomingInfo) => {
-    console.log("Cuộc gọi đến:", incomingInfo);
+    console.log("Cuộc gọii đến:", incomingInfo);
 
     if ([0, 2].includes(incomingInfo.attribute.call_mode)) {
       setIncomingCall(incomingInfo);
@@ -90,7 +170,33 @@ function Call() {
       teardownCallHandlers();
     };
   }, []);
+  useEffect(() => {
+    const ws = new WebSocket("ws://180.148.0.215/demo");
 
+    ws.onopen = () => {
+      console.log("WebSocket connection established.");
+    };
+
+    ws.onmessage = (event) => {
+      console.log("Message received from server:", event.data);
+    };
+
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+    };
+
+    ws.onclose = () => {
+      console.log("WebSocket connection closed.");
+    };
+
+    setSocket(ws);
+
+    return () => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+    };
+  }, []);
   async function handleHangup(callId) {
     console.log("Ngắt cuộc gọi:", callId);
     try {
@@ -136,22 +242,13 @@ function Call() {
       .then(async (resp) => {
         console.log("GOi ne", resp);
         setCurrentCallId(resp.call_id);
-        if (modeCall === 2) {
-          await setLocalVideo();
-        }
       })
       .catch((err) => {
         console.error(err);
         setCallState("normal");
       });
   }
-  async function setLocalVideo() {
-    localStream.current = await navigator.mediaDevices.getUserMedia({
-      video: true,
-      audio: true,
-    });
-    localVideoRef.current.srcObject = localStream.current;
-  }
+
   async function handleAnswerCall(callId, duplex_flag, listen_flag) {
     try {
       if (callId === null) {
@@ -181,7 +278,7 @@ function Call() {
       console.error("Lỗi khi chuyển tiếp cuộc gọi:", error);
     }
   }
-  console.log("incomingCall", incomingCall);
+  console.log("hehe blobUrl", blobUrl);
   return (
     <div>
       <select
