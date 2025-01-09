@@ -95,11 +95,11 @@ function Call() {
     mediaRecorder.ondataavailable = async (event) => {
       if (event.data.size > 0) {
         const arrayBuffer = await event.data.arrayBuffer();
-        const uint8Array = new Uint8Array(arrayBuffer);
+        // const uint8Array = new Uint8Array(arrayBuffer);
 
-        // Send Uint8Array directly through WebSocket
+        // // Send Uint8Array directly through WebSocket
         if (socket.readyState === WebSocket.OPEN) {
-          socket.send(uint8Array);
+          socket.send(arrayBuffer);
           console.log("Sent WebRTC stream data to WebSocket", uint8Array);
         } else {
           console.error("WebSocket is not open. Data not sent.");
@@ -171,7 +171,7 @@ function Call() {
     };
   }, []);
   useEffect(() => {
-    const ws = new WebSocket("ws://180.148.0.215/demo");
+    const ws = new WebSocket("ws://180.148.0.215:5050/demo");
 
     ws.onopen = () => {
       console.log("WebSocket connection established.");
