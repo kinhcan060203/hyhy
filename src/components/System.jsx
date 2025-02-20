@@ -30,7 +30,7 @@ function System() {
     const res = await window.lemon.call
       .pullVideo({
         basedata_id:
-          "fd88c15f15d090841a29b5be71c004f0dc0bd25957a527a2fbc7442e92622fd0",
+          "fd88c15f15d090841a29b5be71c004f0d66f57e383353c029917375692537320",
         video_frame_size: 3,
         hook_flag: 0,
       })
@@ -47,7 +47,8 @@ function System() {
     const res = await window.lemon.call
       .makeVideoCall({
         basedata_id:
-          "fd88c15f15d090841a29b5be71c004f0dc0bd25957a527a2fbc7442e92622fd0",
+          "fd88c15f15d090841a29b5be71c004f0d66f57e383353c029917375692537320",
+
         video_frame_size: 3,
         hook_flag: 1,
       })
@@ -64,7 +65,7 @@ function System() {
     const res = await window.lemon.call
       .makeVoiceCall({
         basedata_id:
-          "fd88c15f15d090841a29b5be71c004f0dc0bd25957a527a2fbc7442e92622fd0",
+          "fd88c15f15d090841a29b5be71c004f0d66f57e383353c029917375692537320",
         duplex_flag: 1,
         hook_flag: 0,
       })
@@ -79,13 +80,14 @@ function System() {
   }
   async function handleLogin() {
     let userInfo = {
-      username: "becamex2",
+      username: "becamex",
       password: "vn123456",
       realm: "puc.com",
-      webpucUrl: "https://180.148.0.217",
+      webpucUrl: "https://45.118.137.185:16888",
     };
     const res = await window.lemon.login
       .login(userInfo)
+
       .then((resp) => {
         alert("Login success");
       })

@@ -1,6 +1,8 @@
 import { useRef, useState, useEffect } from "react";
 import "./App.css";
 import Call from "./components/Call";
+import GIS from "./components/GIS";
+
 import Sidebar from "./components/Sidebar";
 import System from "./components/System";
 
@@ -10,8 +12,8 @@ const tabs = {
     component: <System />,
   },
   1: {
-    name: "Call",
-    component: <Call />,
+    name: "GIS",
+    component: <GIS />,
   },
 };
 
