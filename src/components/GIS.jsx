@@ -263,7 +263,7 @@ function GetSubDeviceList() {
         <button onClick={fetchSubDeviceList}>fetchSubDeviceList</button>
         <button onClick={syncSubscribeList}>syncSubscribeList</button>
       </div>
-
+      
       {subDeviceList.length > 0 && (
         <>
           <ul>
