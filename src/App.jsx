@@ -5,6 +5,8 @@ import GIS from "./components/GIS";
 
 import Sidebar from "./components/Sidebar";
 import System from "./components/System";
+import Receive from "./components/Receive";
+import Sender from "./components/Sender";
 
 const tabs = {
   0: {
@@ -16,8 +18,12 @@ const tabs = {
     component: <Call />,
   },
   2: {
-    name: "GIS",
-    component: <GIS />,
+    name: "Receive",
+    component: <Receive />,
+  },
+  3: {
+    name: "Sender",
+    component: <Sender />,
   },
 };
 
@@ -44,7 +50,7 @@ function App() {
       }
     };
 
-    attemptRelogin();
+    // attemptRelogin();
 
     const loginStatusCallbackId =
       window.lemon.login.addLoginStatusChangeListener(onLoginStatusChange);
