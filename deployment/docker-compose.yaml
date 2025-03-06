@@ -1,0 +1,23 @@
+name: nano
+services:
+  nano:
+    container_name: becaai-nano
+    image: becaai/nano:v0.0.1
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    ports:
+      - "8173:5173"
+    networks:
+      - nano
+    tty: true
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+
+networks:
+  nano:
+    name: nano
+    driver: bridge

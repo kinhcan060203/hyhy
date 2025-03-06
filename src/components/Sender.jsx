@@ -36,10 +36,15 @@ const Sender = () => {
 
   const createPeerConnection = (socket) => {
     const ICE_SERVERS = [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-      ]
-    
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      {
+        urls: "turn:openrelay.metered.ca:80",
+        username: "openrelay",
+        credential: "openrelay",
+      },
+    ];
+
     const config = { iceServers: ICE_SERVERS };
     const pc = new RTCPeerConnection(config);
 
@@ -57,10 +62,10 @@ const Sender = () => {
     if (!socket) return;
 
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: true,
+      video: false,
       audio: true,
     });
-    localVideoRef.current.srcObject = stream;
+    // localVideoRef.current.srcObject = stream;
 
     const pc = createPeerConnection(socket);
     stream.getTracks().forEach((track) => {
@@ -78,15 +83,7 @@ const Sender = () => {
   return (
     <div className="p-4">
       <h2 className="text-lg font-semibold">WebRTC Video Call</h2>
-      <div className="grid grid-cols-2 gap-4">
-        <video
-          ref={localVideoRef}
-          autoPlay
-          playsInline
-          className="border rounded-lg shadow-lg"
-        />
-
-      </div>
+      <div className="grid grid-cols-2 gap-4"></div>
       <button
         onClick={startCall}
         className="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg shadow-md"
