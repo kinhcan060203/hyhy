@@ -1,11 +1,21 @@
 import { useEffect, useState, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 
 function StreamCall() {
   const { call_type, basedata_id, hookFlag, duplexFlag } = useParams();
-  const [callState, setCallState] = useState("normal");
-  const [rtoken, setToken] = useState(null);
+  const [callState, setCallState] = useState("idle");
   const [callId, setCallId] = useState(null);
+  const [loginStatusCallbackId, setLoginStatusCallbackId] = useState(null);
+
+  const localVideoRef = useRef(null);
+  const remoteVideoRef = useRef(null);
+  const remoteAudioRef = useRef(null);
+
+  let answerAckGuid = null;
+  let mediaStreamGuid = null;
+  let hangupEvtGuid = null;
+  let forceHangupEvtGuid = null;
+
   const userInfo = {
     username: "becamex",
     password: "vn123456",
@@ -13,206 +23,151 @@ function StreamCall() {
     webpucUrl: "https://45.118.137.185:16888",
     pwdNeedEncrypt: false,
   };
-  const localVideoRef = useRef(null);
-  const remoteVideoRef = useRef(null);
-  const remoteAudioRef = useRef(null);
-  let answerAckGuid = null;
-  let mediaStreamGuid = null;
-  let hangupEvtGuid = null;
-  let forceHangupEvtGuid = null;
-  const [loginStatusCallbackId, setLoginStatusCallbackId] = useState(null);
+
+  const login = async () => {
+    try {
+      console.log("Attempting login...");
+      const resp = await window.lemon.login.login(userInfo);
+      if (resp.result !== 0) {
+        console.log("Login failed, retrying...");
+        await login();
+      } else {
+        console.log("Login successful");
+      }
+    } catch (error) {
+      console.error("Login error:", error);
+      await login();
+    }
+  };
 
   const handleEndCall = async () => {
-    setCallState("normal");
-    console.log("%%%%% End call");
-    await handleHangup(callId);
+    setCallState("idle");
+    console.log("Ending call...");
+    await hangupCall();
     teardownCallHandlers();
-    // window.close();
-    handleLogout();
-
+    await logout();
   };
-  async function setupCallHandlers() {
+
+  const setupCallHandlers = async () => {
     answerAckGuid = window.lemon.call.addAnswerAckEvt(() =>
       setCallState("talking")
     );
-    const handleMediaStream = (callId, stream, type) => {
-      if (type === "video_src" && localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-      } else if (type === "video_dst" && remoteVideoRef.current) {
-        console.log(remoteVideoRef);
-        remoteVideoRef.current.srcObject = stream;
-      } else if (type === "audio_dst" && remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = stream;
-      }
-    };
 
-    // const onForceHangupEvt = (hangupInfo) => {
-    //   console.log("ngắt cuộc gọi:", hangupInfo);
-    //   handleEndCall();
-    // };
-    // const onHangupEvt = async (hangupInfo) => {
-    //   console.log("ngắt cuộc gọi:", hangupInfo);
-    //   handleEndCall();
-    // };
-    mediaStreamGuid = window.lemon.call.addMediaStream(handleMediaStream);  
-    hangupEvtGuid = window.lemon.call.addHangupEvt(onHangupEvt);
-    forceHangupEvtGuid = window.lemon.call.addForceHangupEvt(onForceHangupEvt);
-  }
-  function teardownCallHandlers() {
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = null;
-    }
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = null;
-    }
-    if (remoteAudioRef.current) {
-      remoteAudioRef.current.srcObject = null;
-    }
-
-    if (hangupEvtGuid) {
-      window.lemon.call.removeHangupEvt(hangupEvtGuid);
-    }
-    if (forceHangupEvtGuid) {
-      window.lemon.call.removeForceHangupEvt(forceHangupEvtGuid);
-    }
-    if (mediaStreamGuid) {
-      lemon.call.removeMediaStream(mediaStreamGuid);
-    }
-  }
-  const handleLogin = () => {
-    console.log("Attempting relogin");
-    window.lemon.login
-      .login(userInfo)
-      .then((resp) => {
-        console.log(resp);
-        if (resp.result !== 0) {
-          console.log("Login failed");
-          handleLogin();
-        } else {
-          console.log("Login success");
+    mediaStreamGuid = window.lemon.call.addMediaStream(
+      (callId, stream, type) => {
+        if (type === "video_src" && localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+        } else if (type === "video_dst" && remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = stream;
+        } else if (type === "audio_dst" && remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = stream;
         }
-      })
-      .catch((err) => {
-        handleLogin();
-      });
+      }
+    );
+
+    hangupEvtGuid = window.lemon.call.addHangupEvt(handleEndCall);
+    forceHangupEvtGuid = window.lemon.call.addForceHangupEvt(handleEndCall);
   };
-  async function handleHangup() {
-    console.log("Ngắt cuộc gọi:", callId);
+
+  const teardownCallHandlers = () => {
+    [localVideoRef, remoteVideoRef, remoteAudioRef].forEach((ref) => {
+      if (ref.current) ref.current.srcObject = null;
+    });
+
+    [hangupEvtGuid, forceHangupEvtGuid, mediaStreamGuid].forEach((guid) => {
+      if (guid) window.lemon.call.removeEvent(guid);
+    });
+  };
+
+  const hangupCall = async () => {
+    if (!callId) return;
     try {
-      setCallState("normal");
-      await window.lemon.call
-        .hangupCall({ call_id: callId })
-        .then((res) => {
-          console.log("Cuộc gọi đã ngắt thành công:", res);
-        })
-        .catch((err) => {
-          console.error(err);
-        });
+      console.log("Hanging up call", callId);
+      await window.lemon.call.hangupCall({ call_id: callId });
+      setCallId(null);
     } catch (error) {
-      console.error("Lỗi khi ngắt cuộc gọi:", error, callId);
+      console.error("Error ending call:", error);
     }
-  }
-  const handleUnload = () => {
-    localStorage.removeItem("basedata_id");
-    console.log("%%%%% Remove token");
-
   };
-  const onLoginStatusChange = (loginStatus) => {
+
+  const handleLoginStatusChange = async (loginStatus) => {
     console.log("Login status changed", loginStatus);
-    if (
-      loginStatus.login_status === 0 ||
-      loginStatus.login_status === 2 ||
-      loginStatus.login_status === 3
-    ) {
-    let token = localStorage.getItem("basedata_id");
-    console.log("@@@###",sessionStorage.getItem("basedata_id"), localStorage.getItem("basedata_id") === sessionStorage.getItem("basedata_id"));
-
-
-    if (token === sessionStorage.getItem("basedata_id")) {
-      handleLogin();
+    if ([0, 2, 3].includes(loginStatus.login_status)) {
+      let token = localStorage.getItem("basedata_id");
+      if (token === sessionStorage.getItem("basedata_id")) {
+        await login();
+      }
     }
-}};
+  };
 
   useEffect(() => {
     sessionStorage.setItem("basedata_id", basedata_id);
-    handleMakeVideoCall();
-    console.log("%%%%% Set ok token", localStorage.getItem("basedata_id"));
-    window.addEventListener("beforeunload", handleUnload);
-    return () => {
-        window.removeEventListener("beforeunload", handleUnload);
-        if (loginStatusCallbackId) {
-        window.lemon.login.removeLoginStatusChangeListener(loginStatusCallbackId);
-        handleEndCall();
-        }
+    const loginStatusId = window.lemon.login.addLoginStatusChangeListener(
+      handleLoginStatusChange
+    );
+    setLoginStatusCallbackId(loginStatusId);
 
+    initiateCall();
+
+    return () => {
+      window.lemon.login.removeLoginStatusChangeListener(loginStatusCallbackId);
+      handleEndCall();
     };
   }, [basedata_id]);
-  window.onbeforeunload = function() {
-    localStorage.removeItem("basedata_id");
 
-    return '';
+  window.onbeforeunload = () => {
+    localStorage.removeItem("basedata_id");
+    window.lemon.login.removeLoginStatusChangeListener(loginStatusCallbackId);
+    handleEndCall();
   };
-  async function VideoCall() {
-    await window.lemon.call
-      .makeVideoCall({
-        basedata_id: basedata_id,
+
+  const initiateCall = async () => {
+    localStorage.setItem("basedata_id", basedata_id);
+    await login();
+    await setupCallHandlers();
+    setCallState("calling");
+    await startVideoCall();
+  };
+
+  const startVideoCall = async () => {
+    try {
+      const resp = await window.lemon.call.makeVideoCall({
+        basedata_id,
         video_frame_size: 3,
         hook_flag: +hookFlag,
-      })
-      .then(async (resp) => {
-        console.log("Call ok", resp);
-        setCallId(resp.call_id);
-      })
-      .catch((err) => {
-        console.error("Call failed", err);
       });
-  }
-  async function handleMakeVideoCall() {
-
-    let loginStatusId = 
-    window.lemon.login.addLoginStatusChangeListener(onLoginStatusChange);
-    setLoginStatusCallbackId(loginStatusId);
-    console.log("%%%%% Set token");
-    localStorage.setItem("basedata_id", basedata_id);
-    console.log("%%%%% Login");
-    handleLogin();
-    console.log("%%%%% Make call");
-    // await setupCallHandlers();
-    // setCallState("calling");
-    // VideoCall();
-  }
-  async function handleAnswerCall(callId, duplex_flag, listen_flag) {
-    try {
-      if (callId === null) {
-        console.error("Không có cuộc gọi nào đến");
-        return;
-      }
-      const res = await window.lemon.call.answerCall({
-        call_id: callId,
-        duplex_flag: duplex_flag,
-        listen_flag: listen_flag,
-      });
-      console.log("Trả lời cuộc gọi thành công:", res);
+      console.log("Call initiated successfully", resp);
+      setCallId(resp.call_id);
     } catch (error) {
-      console.error("Lỗi khi trả lời cuộc gọi:", error);
+      console.error("Call initiation failed", error);
     }
-  }
-  window.addEventListener("storage", (event) => {
-    if (event.key === "basedata_id") {
-      console.log("Token đã thay đổi:", event.newValue);
-      if (event.newValue !== sessionStorage.getItem("basedata_id")) {
-        console.log("Token khong trung nhau, logout");
-        window.lemon.login.removeLoginStatusChangeListener(loginStatusCallbackId);
-        handleEndCall();
-      } 
+  };
+
+  const answerCall = async (callId, duplex_flag, listen_flag) => {
+    if (!callId) return console.error("No incoming call to answer");
+    try {
+      const response = await window.lemon.call.answerCall({
+        call_id: callId,
+        duplex_flag,
+        listen_flag,
+      });
+      console.log("Call answered successfully", response);
+    } catch (error) {
+      console.error("Error answering call", error);
     }
-  });
-  async function handleLogout() {
-    const res = await window.lemon.login.logout();
-    console.log(res);
-  }
+  };
+
+  const logout = async () => {
+    try {
+      const response = await window.lemon.login.logout();
+      console.log("Logged out successfully", response);
+    } catch (error) {
+      console.error("Error logging out", error);
+    }
+  };
+
   return (
-    <div className="flex items-center justify-center h-screen bg-black relative h-100 w-100">
+    <div className="flex items-center justify-center h-screen bg-black relative w-full">
       <video
         ref={remoteVideoRef}
         autoPlay
@@ -221,16 +176,14 @@ function StreamCall() {
       />
       <audio ref={remoteAudioRef} autoPlay />
       <button
-        onClick={
-            handleMakeVideoCall
-        }
-        className="absolute bottom-5 left-5 transform bg-blue-400 text-white px-6 py-2 rounded-lg text-lg font-bold shadow-lg"
+        onClick={initiateCall}
+        className="absolute bottom-5 left-5 bg-blue-400 text-white px-6 py-2 rounded-lg shadow-lg"
       >
         Start Call
       </button>
       <button
         onClick={handleEndCall}
-        className="absolute bottom-5 right-5 transform bg-blue-400 text-white px-6 py-2 rounded-lg text-lg font-bold shadow-lg"
+        className="absolute bottom-5 right-5 bg-red-400 text-white px-6 py-2 rounded-lg shadow-lg"
       >
         End Call
       </button>
