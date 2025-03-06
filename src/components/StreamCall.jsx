@@ -24,20 +24,20 @@ function StreamCall() {
     pwdNeedEncrypt: false,
   };
 
-  const login = async () => {
+  const handleLogin = async () => {
     try {
       console.log("Attempting login...");
       const resp = await window.lemon.login.login(userInfo);
-      if (resp.result !== 0) {
-        console.log("Login failed, retrying...");
-        await login();
-      } else {
-        console.log("Login successful");
-      }
+        if (resp.result !== 0) {
+        console.log("%% Login failed, retrying...");
+        handleLogin()
+        } else {
+        console.log("%% Login successful");
+        }
     } catch (error) {
-      console.error("Login error:", error);
-      await login();
+      console.error("%% Login error:", error);
     }
+    console.log("%%% Logged in successfully");
   };
 
   const handleEndCall = async () => {
@@ -45,7 +45,7 @@ function StreamCall() {
     console.log("Ending call...");
     await hangupCall();
     teardownCallHandlers();
-    await logout();
+    // await logout();
   };
 
   const setupCallHandlers = async () => {
@@ -94,8 +94,9 @@ function StreamCall() {
     console.log("Login status changed", loginStatus);
     if ([0, 2, 3].includes(loginStatus.login_status)) {
       let token = localStorage.getItem("basedata_id");
+      console.log("%%%%", "Login status: ", loginStatus, token === sessionStorage.getItem("basedata_id"));
       if (token === sessionStorage.getItem("basedata_id")) {
-        await login();
+        initiateCall();
       }
     }
   };
@@ -106,7 +107,6 @@ function StreamCall() {
       handleLoginStatusChange
     );
     setLoginStatusCallbackId(loginStatusId);
-
     initiateCall();
 
     return () => {
@@ -122,24 +122,33 @@ function StreamCall() {
   };
 
   const initiateCall = async () => {
+    console.log("%%% starting call...");
     localStorage.setItem("basedata_id", basedata_id);
-    await login();
+    console.log("%%% Logged in process...");
+    handleLogin();
+    console.log("%%% Logged in successfully");
     await setupCallHandlers();
+    console.log("%%% setupCallHandlers successfully");
     setCallState("calling");
-    await startVideoCall();
+    console.log("%%% Initiating call...");
+    setTimeout(startVideoCall, 1000);
+
+
   };
 
   const startVideoCall = async () => {
     try {
+      console.log("%% Initiating call...");
       const resp = await window.lemon.call.makeVideoCall({
-        basedata_id,
+        basedata_id:basedata_id,
         video_frame_size: 3,
         hook_flag: +hookFlag,
       });
-      console.log("Call initiated successfully", resp);
+      console.log("%%% Call initiated successfully", resp);
       setCallId(resp.call_id);
     } catch (error) {
-      console.error("Call initiation failed", error);
+      setTimeout(initiateCall, 1000);
+      console.error("%% Call initiated failed", error);
     }
   };
 
@@ -168,6 +177,13 @@ function StreamCall() {
 
   return (
     <div className="flex items-center justify-center h-screen bg-black relative w-full">
+      {
+        callState === "idle" ? (
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
+            <h1 className="text-white text-3xl font-bold mb-5">Connecting...</h1>
+          </div>
+        ) : null
+      }
       <video
         ref={remoteVideoRef}
         autoPlay
@@ -175,7 +191,7 @@ function StreamCall() {
         className="w-full h-full object-cover"
       />
       <audio ref={remoteAudioRef} autoPlay />
-      <button
+      {/* <button
         onClick={initiateCall}
         className="absolute bottom-5 left-5 bg-blue-400 text-white px-6 py-2 rounded-lg shadow-lg"
       >
@@ -186,7 +202,7 @@ function StreamCall() {
         className="absolute bottom-5 right-5 bg-red-400 text-white px-6 py-2 rounded-lg shadow-lg"
       >
         End Call
-      </button>
+      </button> */}
     </div>
   );
 }

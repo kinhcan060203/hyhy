@@ -7,7 +7,7 @@ import System from "./System";
 import Receive from "./Receive";
 import Sender from "./Sender";
 import DemoCall from "./DemoCall";
-
+import Fake from "./Fake";
 const tabs = {
   0: {
     name: "System",
@@ -32,6 +32,10 @@ const tabs = {
   5: {
     name: "DemoCall",
     component: <DemoCall />,
+  },
+  6: {
+    name: "Fake",
+    component: <Fake />,
   },
 };
 

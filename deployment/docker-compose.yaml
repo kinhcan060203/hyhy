@@ -7,7 +7,7 @@ services:
       context: ..
       dockerfile: deployment/Dockerfile
     ports:
-      - "8173:5173"
+      - "8173:8173"
     networks:
       - smart-sdk
     tty: true

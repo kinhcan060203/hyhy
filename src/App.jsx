@@ -7,9 +7,7 @@ import StreamCall from "./components/StreamCall";
 function App() {
   return (
     <>
-      <div>
-        <h1>Smart SDK Manager</h1>
-      </div>
+     
       <Routes>
         <Route
           path="/stream/:call_mode/:call_type/:hookFlag/:duplexFlag/:basedata_id"
