@@ -18,7 +18,7 @@ function Call() {
   let forceHangupEvtGuid = null;
   const [socket, setSocket] = useState(null);
   const basedata_id =
-    "fd88c15f15d090841a29b5be71c004f003b25cd33c48d20d3072b2c1bfaf2bfd";
+    "fd88c15f15d090841a29b5be71c004f0adb5f0119792b4f54286ea446de81c2f";
 
   const basedataId_forward = "00082-890-2023020706-0--mcs.com";
 
@@ -32,7 +32,7 @@ function Call() {
         localVideoRef.current.srcObject = stream;
       } else if (type === "video_dst" && remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = stream;
-        handleMediaRecorder(callId, stream, type);
+        // handleMediaRecorder(callId, stream, type);
         // streamToKafka(stream);
         console.log("@stream", stream);
       } else if (type === "audio_dst" && remoteAudioRef.current) {

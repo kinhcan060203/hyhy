@@ -40,9 +40,12 @@ const Receive = () => {
 
         // Cập nhật video
         if (videoRef.current) {
-          videoRef.current.muted = false
-          videoRef.current.srcObject = remoteStream.current
-          console.log("🎬 VideoRef  updated", videoRef.current.srcObject.getVideoTracks());
+          videoRef.current.muted = false;
+          videoRef.current.srcObject = remoteStream.current;
+          console.log(
+            "🎬 VideoRef  updated",
+            videoRef.current.srcObject.getAudioTracks()
+          );
         }
       };
 
@@ -60,8 +63,8 @@ const Receive = () => {
       };
       pc.oniceconnectionstatechange = () => {
         console.log("ICE State:", pc.iceConnectionState);
-    };
-    
+      };
+
       newSocket.on("ice-candidate", async (candidate) => {
         try {
           await pc.addIceCandidate(new RTCIceCandidate(candidate));
@@ -87,6 +90,7 @@ const Receive = () => {
         controls
         style={{ width: "100%", maxWidth: "600px", border: "2px solid black" }}
       />
+      <audio ref={videoRef} autoPlay />
     </div>
   );
 };

@@ -1,0 +1,23 @@
+name: smart-sdk-manager
+services:
+  nano:
+    container_name: smart-sdk
+    image: smart/sdk:v0.0.1
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    ports:
+      - "8173:8173"
+    networks:
+      - smart-sdk
+    tty: true
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+
+networks:
+  smart-sdk:
+    name: smart-sdk
+    driver: bridge
