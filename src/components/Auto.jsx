@@ -8,6 +8,12 @@ function AutoLogin() {
     pwdNeedEncrypt: false,
   };
   const [deviceList, setDeviceList] = useState({ hehe: "haha" });
+  const [incomingCall, setIncomingCall] = useState(null);
+  const [embeddedCallId, setEmbeddedCallId] = useState(null);
+  let incomingEvtGuid = null;
+  let answerAckGuid = null;
+  let hangupEvtGuid = null;
+  let forceHangupEvtGuid = null;
 
   const attemptLogin = async () => {
     console.log("Attempting login");
@@ -23,6 +29,13 @@ function AutoLogin() {
     } catch (error) {
       console.log("Login error, retrying...");
       setTimeout(attemptLogin, 1000);
+    }
+  };
+  const handleIncomingCall = async (incomingInfo) => {
+    console.log("Cuộc gọii đến:", incomingInfo);
+
+    if ([0, 2].includes(incomingInfo.attribute.call_mode)) {
+      setIncomingCall(incomingInfo);
     }
   };
 
@@ -64,14 +77,42 @@ function AutoLogin() {
       console.error("Error fetching device list:", error);
     }
   }
+  const handleEndCall = async () => {
+    console.log("Ending call");
+    setEmbeddedCallId(null);
+    setIncomingCall(null);
+  };
+  function teardownCallHandlers() {
+    if (hangupEvtGuid) {
+      window.lemon.call.removeHangupEvt(hangupEvtGuid);
+    }
+    if (forceHangupEvtGuid) {
+      window.lemon.call.removeForceHangupEvt(forceHangupEvtGuid);
+    }
+
+    if (incomingEvtGuid) {
+      window.lemon.call.removeIncomingEvt(incomingEvtGuid);
+    }
+    if (answerAckGuid) {
+      window.lemon.call.removeAnswerAckEvt(answerAckGuid);
+    }
+  }
   useEffect(() => {
+    
+    incomingEvtGuid = window.lemon.call.addIncomingEvt(handleIncomingCall);
+    answerAckGuid = window.lemon.call.addAnswerAckEvt(() =>
+      setEmbeddedCallId(null)
+    );
+    hangupEvtGuid = window.lemon.call.addHangupEvt(handleEndCall);
+    forceHangupEvtGuid = window.lemon.call.addForceHangupEvt(handleEndCall);
     const loginStatusCallbackId =
       window.lemon.login.addLoginStatusChangeListener(handleLoginStatusChange);
     localStorage.removeItem("basedata_id");
     attemptLogin();
 
     return () => {
-      window.lemon.login.removeLoginStatusChangeListener(loginStatusCallbackId);
+      teardownCallHandlers();
+      handleLogout();
     };
   }, []);
   useEffect(() => {
@@ -79,6 +120,17 @@ function AutoLogin() {
 
     return () => {};
   }, [deviceList]);
+
+  window.onbeforeunload = () => {
+    window.lemon.login.removeLoginStatusChangeListener(loginStatusCallbackId);
+    window.lemon.call.removeIncomingEvt(incomingEvtGuid);
+    window.lemon.call.removeAnswerAckEvt(answerAckGuid);
+    handleLogout();
+  };
+  async function handleLogout() {
+    const res = await window.lemon.login.logout();
+    console.log(res);
+  }
   useEffect(() => {
     const handleStorageChange = (event) => {
       if (event.key === "basedata_id") {
@@ -98,8 +150,39 @@ function AutoLogin() {
       window.removeEventListener("storage", handleStorageChange);
     };
   }, []);
+  const handleAnswerCall = async () => {
+    console.log("Answering call", callId);
+    console.log("incomingCall call", incomingCall);
+    let duplex_flag = incomingCall.attribute.duplex_flag;
+    let listen_flag = incomingCall.listen_flag;
+    let caller_alias = incomingCall.caller_alias;
+    let callId = incomingCall.call_id;
+    try {
+      setEmbeddedCallId(`http://localhost:8173/stream/video/1?duplex_flag=${duplex_flag}&listen_flag=${listen_flag}&call_id=${callId}&caller_alias=${caller_alias}`);
+    } catch (error) {
+      console.error("Error answering call", error);
+    }
+  }
 
-  return <h1>Auto Login</h1>;
+  return <>
+  <h1>Auto Login</h1> 
+  <input type="text" value={embeddedCallId} />
+  {
+    incomingCall && (
+      <div>
+        <p>Cuộc gọi đến từ: {incomingCall.caller_number}</p>
+        
+        <button
+          onClick={() => handleAnswerCall()}
+        >
+          Trả lời
+        </button>
+        {/* <button onClick={async () => await handleHangup(currentCallId)}>
+      Tắt cuộc gọi
+    </button> */}
+      </div>)
+  }
+  </>;
 }
 
 export default AutoLogin;

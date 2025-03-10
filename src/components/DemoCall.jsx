@@ -14,8 +14,8 @@ function DemoCall() {
   const [incomingCall, setIncomingCall] = useState(null);
   const [currentCallId, setCurrentCallId] = useState(null);
   const handleClick = (call_type) => {
-    navigate(`/stream/0/${call_type}/${hookFlag}/${duplexFlag}/${basedata_id}`);
-
+    navigate(`/stream/${call_type}/0?hookFlag=${hookFlag}&duplexFlag=${duplexFlag}&basedata_id=${basedata_id}`);
+    // /stream/1/0
     // window.open(
     //   `/stream/0/${call_type}/${hookFlag}/${duplexFlag}/${basedata_id}`,
     //   "_blank",
