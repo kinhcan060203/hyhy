@@ -129,7 +129,11 @@ function StreamCall() {
     if ([0, 2, 3].includes(loginStatus.login_status)) {
       console.log("%%% Login status changed", dataid, sessionStorage.getItem("basedata_id"));
       if (dataid === sessionStorage.getItem("basedata_id")) {
-        restartVideoCall()
+        console.log("Starting call...");
+        await handleLogin();
+        await setupCallHandlers();
+        setCallState("calling");
+        setTimeout(restartVideoCall, 1000);
       }
     }
   };
@@ -164,8 +168,12 @@ function StreamCall() {
     newSocket.emit('call', { status:"call", basedata_id: params.basedata_id });
   }
     useEffect(() => {
+      console.log("%%% init media")
         setupSocket()   
+        // let media = navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        // console.log("%%% media", media)
     }, []);
+
   useEffect(() => {
     sessionStorage.setItem("basedata_id", params.basedata_id);
     setBaseDataID(params.basedata_id);
@@ -246,8 +254,9 @@ function StreamCall() {
       {callState === "waiting" && <h1 className="text-white text-3xl font-bold absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">Waiting...</h1>}
       {callState === "disconnecting" && <h1 className="text-white text-3xl font-bold absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">Disconnecting...</h1>}
 
-      <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
-      <audio ref={remoteAudioRef} autoPlay />
+      <video ref={remoteVideoRef} crossOrigin="anonymous" autoPlay playsInline className="w-full h-full object-cover" />
+      <audio ref={remoteAudioRef} crossOrigin="anonymous" autoPlay />
+
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from "react";
 import io from "socket.io-client";
-
+import mqtt from "mqtt";
 function AutoLogin() {
   const userInfo = {
     username: "becamex",
@@ -13,6 +13,19 @@ function AutoLogin() {
   const [embeddedCallId, setEmbeddedCallId] = useState(null);
   const [socket, setSocket] = useState(null);
   const [event_status, setEventStatus] = useState("idle");
+
+
+  const [client, setClient] = useState(null);
+  const [isConnected, setIsConnected] = useState(false);
+  const MQTT_BROKER = "103.129.80.171";
+  const MQTT_PORT = "27018";
+  const MQTT_USERNAME = "securityalert";
+  const MQTT_PASSWORD = "securityalert";
+  const MQTT_TOPIC = "alert-security-media"; 
+  const MQTT_TOPIC_RESPONSE = "alert-security-media-response"; 
+
+
+
   let eventStatus = "idle";
   const hookFlag = 0;
   const duplexFlag = 1;
@@ -152,6 +165,54 @@ function AutoLogin() {
   useEffect(() => {
     setupSocket()   
   }, []);
+
+  useEffect(() => {
+    const mqttClient = mqtt.connect(`ws://${MQTT_BROKER}:${MQTT_PORT}`, {
+      username: MQTT_USERNAME,
+      password: MQTT_PASSWORD,
+      reconnectPeriod: 5000,
+    });
+
+    mqttClient.on("connect", () => {
+      console.log("✅ Kết nối MQTT thành công!");
+      setIsConnected(true);
+      mqttClient.subscribe(MQTT_TOPIC);
+    });
+
+    mqttClient.on(MQTT_TOPIC, (topic, payload) => {
+      console.log("%%% ✅ Received call offer:", topic, payload);
+        let alias = payload.deviceId;
+        console.log("%%% alias:", alias);
+        let basedata_id = deviceList[alias].basedata_id;
+        if (!basedata_id) {
+            console.error("%%% basedata_id not found");
+            mqttClient.publish(MQTT_TOPIC_RESPONSE, {
+              "url": "",
+              "statusCode": 404,
+              "msg": "basedata_id not found",
+          });
+        } else {
+          console.log("%%% basedata_id:", basedata_id);
+          mqttClient.publish(MQTT_TOPIC_RESPONSE, {
+              "url": `http://192.168.101.3:8173/stream/${call_type}/0?hookFlag=${hookFlag}&duplexFlag=${duplexFlag}&basedata_id=${basedata_id}`,
+              "statusCode": 200,
+              "msg": "success",
+          });
+        }
+    });
+
+    mqttClient.on("error", (err) => {
+      console.error("❌ Lỗi MQTT:", err);
+    });
+
+    setClient(mqttClient);
+
+    return () => {
+      mqttClient.end(); // Đóng kết nối khi component bị unmount
+    };
+  }, []);
+
+
   useEffect(() => {
     incomingEvtGuid = window.lemon.call.addIncomingEvt(handleIncomingCall);
     answerAckGuid = window.lemon.call.addAnswerAckEvt(() =>
