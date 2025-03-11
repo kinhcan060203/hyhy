@@ -1,4 +1,6 @@
 import { useRef, useState, useEffect } from "react";
+import io from "socket.io-client";
+import mqtt from "mqtt";
 function AutoLogin() {
   const userInfo = {
     username: "becamex",
@@ -7,8 +9,32 @@ function AutoLogin() {
     webpucUrl: "https://45.118.137.185:16888",
     pwdNeedEncrypt: false,
   };
-  const [deviceList, setDeviceList] = useState({ hehe: "haha" });
+  const [incomingCall, setIncomingCall] = useState(null);
+  const [embeddedCallId, setEmbeddedCallId] = useState(null);
+  const [socket, setSocket] = useState(null);
+  const [event_status, setEventStatus] = useState("idle");
 
+
+  const [client, setClient] = useState(null);
+  const [isConnected, setIsConnected] = useState(false);
+  const MQTT_BROKER = "103.129.80.171";
+  const MQTT_PORT = "27018";
+  const MQTT_USERNAME = "securityalert";
+  const MQTT_PASSWORD = "securityalert";
+  const MQTT_TOPIC = "alert-security-media"; 
+  const MQTT_TOPIC_RESPONSE = "alert-security-media-response"; 
+
+
+
+  let eventStatus = "idle";
+  const hookFlag = 0;
+  const duplexFlag = 1;
+  const call_type = "video";
+  let incomingEvtGuid = null;
+  let answerAckGuid = null;
+  let hangupEvtGuid = null;
+  let forceHangupEvtGuid = null;
+  let deviceList = {}
   const attemptLogin = async () => {
     console.log("Attempting login");
     try {
@@ -25,6 +51,12 @@ function AutoLogin() {
       setTimeout(attemptLogin, 1000);
     }
   };
+  const handleIncomingCall = async (incomingInfo) => {
+    console.log("Calling from:", incomingInfo);
+    if ([0, 2].includes(incomingInfo.attribute.call_mode)) {
+      setIncomingCall(incomingInfo);
+    }
+  };
 
   const attemptLogout = async () => {
     console.log("Logging out");
@@ -34,8 +66,8 @@ function AutoLogin() {
   const handleLoginStatusChange = (loginStatus) => {
     console.log("Login status changed", loginStatus);
     if ([0, 2, 3].includes(loginStatus.login_status)) {
-      const storedToken = localStorage.getItem("basedata_id");
-      if (!storedToken) {
+      console.log("%%% Login status changed", eventStatus);
+      if (eventStatus === "idle") {
         attemptLogin();
       }
     }
@@ -59,19 +91,144 @@ function AutoLogin() {
         };
         return acc;
       }, {});
-      setDeviceList(newDeviceList);
+      deviceList = newDeviceList
     } catch (error) {
       console.error("Error fetching device list:", error);
     }
   }
+  const handleEndCall = async () => {
+    console.log("Ending call");
+    setEmbeddedCallId(null);
+    setIncomingCall(null);
+  };
+  function teardownCallHandlers() {
+    if (hangupEvtGuid) {
+      window.lemon.call.removeHangupEvt(hangupEvtGuid);
+    }
+    if (forceHangupEvtGuid) {
+      window.lemon.call.removeForceHangupEvt(forceHangupEvtGuid);
+    }
+
+    if (incomingEvtGuid) {
+      window.lemon.call.removeIncomingEvt(incomingEvtGuid);
+    }
+    if (answerAckGuid) {
+      window.lemon.call.removeAnswerAckEvt(answerAckGuid);
+    }
+  }
+  function setupSocket() {
+    const newSocket = io("http://192.168.101.3:6173");
+    setSocket(newSocket);
+    newSocket.on("connect", () => console.log("✅ WebSocket Connected"));
+    newSocket.on("call.offer", async (offer) => {
+        console.log("%%% ✅ Received call offer:", offer);
+        let alias = offer.deviceId;
+        console.log("%%% alias:", alias);
+        let basedata_id = deviceList[alias].basedata_id;
+        if (!basedata_id) {
+            console.error("%%% basedata_id not found");
+            newSocket.emit("call.answer", {
+              "url": "",
+              "statusCode": 404,
+              "msg": "basedata_id not found",
+          });
+        } else {
+          console.log("%%% basedata_id:", basedata_id);
+          newSocket.emit("call.answer", {
+              "url": `http://192.168.101.3:8173/stream/${call_type}/0?hookFlag=${hookFlag}&duplexFlag=${duplexFlag}&basedata_id=${basedata_id}`,
+              "statusCode": 200,
+              "msg": "success",
+          });
+        }
+
+    });
+    newSocket.on("call", async (offer) => {
+        let status = offer.status;
+        console.log("%% call status:", status);
+        if (status === "call") {
+            setEventStatus("call");
+            eventStatus = "call";
+            attemptLogout();
+        } else if (status === "idle") {
+            setEventStatus("idle");
+            eventStatus = "idle";
+            attemptLogin();
+        }
+    });
+
+    newSocket.emit("call", {
+        status: "idle",
+        basedata_id: null,
+    })
+  }
+
   useEffect(() => {
+    setupSocket()   
+  }, []);
+
+  useEffect(() => {
+    const mqttClient = mqtt.connect(`ws://${MQTT_BROKER}:${MQTT_PORT}`, {
+      username: MQTT_USERNAME,
+      password: MQTT_PASSWORD,
+      reconnectPeriod: 5000,
+    });
+
+    mqttClient.on("connect", () => {
+      console.log("✅ Kết nối MQTT thành công!");
+      setIsConnected(true);
+      mqttClient.subscribe(MQTT_TOPIC);
+    });
+
+    mqttClient.on(MQTT_TOPIC, (topic, payload) => {
+      console.log("%%% ✅ Received call offer:", topic, payload);
+        let alias = payload.deviceId;
+        console.log("%%% alias:", alias);
+        let basedata_id = deviceList[alias].basedata_id;
+        if (!basedata_id) {
+            console.error("%%% basedata_id not found");
+            mqttClient.publish(MQTT_TOPIC_RESPONSE, {
+              "url": "",
+              "statusCode": 404,
+              "msg": "basedata_id not found",
+          });
+        } else {
+          console.log("%%% basedata_id:", basedata_id);
+          mqttClient.publish(MQTT_TOPIC_RESPONSE, {
+              "url": `http://192.168.101.3:8173/stream/${call_type}/0?hookFlag=${hookFlag}&duplexFlag=${duplexFlag}&basedata_id=${basedata_id}`,
+              "statusCode": 200,
+              "msg": "success",
+          });
+        }
+    });
+
+    mqttClient.on("error", (err) => {
+      console.error("❌ Lỗi MQTT:", err);
+    });
+
+    setClient(mqttClient);
+
+    return () => {
+      mqttClient.end(); // Đóng kết nối khi component bị unmount
+    };
+  }, []);
+
+
+  useEffect(() => {
+    incomingEvtGuid = window.lemon.call.addIncomingEvt(handleIncomingCall);
+    answerAckGuid = window.lemon.call.addAnswerAckEvt(() =>
+      setEmbeddedCallId(null)
+    );
+    hangupEvtGuid = window.lemon.call.addHangupEvt(handleEndCall);
+    forceHangupEvtGuid = window.lemon.call.addForceHangupEvt(handleEndCall);
     const loginStatusCallbackId =
       window.lemon.login.addLoginStatusChangeListener(handleLoginStatusChange);
-    localStorage.removeItem("basedata_id");
+
     attemptLogin();
 
     return () => {
       window.lemon.login.removeLoginStatusChangeListener(loginStatusCallbackId);
+      teardownCallHandlers();
+      attemptLogout();
     };
   }, []);
   useEffect(() => {
@@ -79,27 +236,66 @@ function AutoLogin() {
 
     return () => {};
   }, [deviceList]);
-  useEffect(() => {
-    const handleStorageChange = (event) => {
-      if (event.key === "basedata_id") {
-        console.log("basedata_id changed:", event.newValue);
-        if (!event.newValue) {
-          console.log("basedata_id removed, reattempting login");
-          attemptLogin();
-        } else {
-          console.log("basedata_id updated, logging out");
-          attemptLogout();
-        }
-      }
-    };
 
-    window.addEventListener("storage", handleStorageChange);
-    return () => {
-      window.removeEventListener("storage", handleStorageChange);
-    };
-  }, []);
+  window.onbeforeunload = () => {
+    window.lemon.login.removeLoginStatusChangeListener(loginStatusCallbackId);
+    window.lemon.call.removeIncomingEvt(incomingEvtGuid);
+    window.lemon.call.removeAnswerAckEvt(answerAckGuid);
+    attemptLogout();
+  };
 
-  return <h1>Auto Login</h1>;
+  // useEffect(() => {
+  //   const handleStorageChange = (event) => {
+  //     if (event.key === "basedata_id") {
+  //       console.log("basedata_id changed:", event.newValue);
+  //       if (!event.newValue) {
+  //         console.log("basedata_id removed, reattempting login");
+  //         attemptLogin();
+  //       } else {
+  //         console.log("basedata_id updated, logging out");
+  //         attemptLogout();
+  //       }
+  //     }
+  //   };
+
+  //   window.addEventListener("storage", handleStorageChange);
+  //   return () => {
+  //     window.removeEventListener("storage", handleStorageChange);
+  //   };
+  // }, []);
+
+  const handleAnswerCall = async () => {
+    console.log("Answering call", callId);
+    console.log("incomingCall call", incomingCall);
+    let duplex_flag = incomingCall.attribute.duplex_flag;
+    let listen_flag = incomingCall.listen_flag;
+    let caller_alias = incomingCall.caller_alias;
+    let callId = incomingCall.call_id;
+    try {
+      setEmbeddedCallId(`http://192.168.101.3:8173/stream/video/1?duplex_flag=${duplex_flag}&listen_flag=${listen_flag}&call_id=${callId}&caller_alias=${caller_alias}`);
+    } catch (error) {
+      console.error("Error answering call", error);
+    }
+  }
+
+  return <>
+  <h1>Auto Login</h1> 
+  {
+    incomingCall && (
+      <div>
+        <p>Cuộc gọi đến từ: {incomingCall.caller_number}</p>
+        <input type="text" value={embeddedCallId} />
+        <button
+          onClick={() => handleAnswerCall()}
+        >
+          Trả lời
+        </button>
+        {/* <button onClick={async () => await handleHangup(currentCallId)}>
+      Tắt cuộc gọi
+    </button> */}
+      </div>)
+  }
+  </>;
 }
 
 export default AutoLogin;

@@ -10,7 +10,7 @@ function App() {
      
       <Routes>
         <Route
-          path="/stream/:call_mode/:call_type/:hookFlag/:duplexFlag/:basedata_id"
+          path="/stream/:call_type/:call_mode/"
           element={<StreamCall />}
         />
         <Route path="/auto" element={<Auto />} />

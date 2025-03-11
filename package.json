@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "buffer": "^6.0.3",
+    "mqtt": "^5.10.4",
+    "paho-mqtt": "^1.1.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.2.0",
