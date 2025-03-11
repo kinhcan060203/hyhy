@@ -1,11 +1,13 @@
 import { use } from "react";
 import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-
+import io from "socket.io-client";
 function DemoCall() {
   const navigate = useNavigate();
   const videoRef = useRef(null);
   const [stream, setStream] = useState(null);
+  const [socket, setSocket] = useState(null);
+  const [videoLink, setVideoLink] = useState(null);
   const devices = ["device_name"];
   const hookFlag = 0;
   const duplexFlag = 1;
@@ -60,7 +62,34 @@ function DemoCall() {
         return null;
       });
   }
+  
+  function handleCall() {
+    console.log("Gọi video", socket);
+    socket.emit("call.offer", {
+      deviceId: "BoDam5",
+    });
+  }
+  function setupSocket() {
+    const newSocket = io("http://192.168.101.3:6173");
+    setSocket(newSocket);
+    newSocket.on("connect", () => console.log("✅ WebSocket Connected"));
+    newSocket.on("call.answer", (data) => {
+      console.log("%% ✅ Answered call:", data);
+      setVideoLink(data.url);
+    });
+    newSocket.emit("call", {
+      status: "idle",
+      basedata_id: null,
+    });
+  }
+  function endCall() {
+    console.log("Kết thúc cuộc gọi");
+    setVideoLink(null);
+  }
+  useEffect(() => {
 
+    setupSocket()   
+  }, []);
   // async function handleHangup(callId) {
   //   console.log("Ngắt cuộc gọi:", callId);
   //   try {
@@ -85,8 +114,15 @@ function DemoCall() {
       <button onClick={() => handleClick("video")} className="">
         Video Call
       </button>
+      <button onClick={() => handleCall("video")} className="">
+        Video Call websocket
+      </button>
       <button onClick={() => get_account_info()} className="">
         get account info
+      </button>
+      <iframe src={videoLink} width={500} height={500} frameborder="0"></iframe>
+      <button onClick={() => endCall()} className="">
+      endCall 
       </button>
       {/* <div>
         {incomingCall && (

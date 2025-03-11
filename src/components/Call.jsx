@@ -96,7 +96,6 @@ function Call() {
       if (event.data.size > 0) {
         const arrayBuffer = await event.data.arrayBuffer();
         // const uint8Array = new Uint8Array(arrayBuffer);
-
         // // Send Uint8Array directly through WebSocket
         if (socket.readyState === WebSocket.OPEN) {
           socket.send(arrayBuffer);
@@ -116,12 +115,10 @@ function Call() {
     console.log("Received media blob:", blob, "type:", type);
     if (type === "video_dst") {
       const blobUrl = URL.createObjectURL(blob);
-
       setBlobUrl(blobUrl);
     } else if (type === "audio_dst") {
       const blobUrl = URL.createObjectURL(blob);
       console.log("blobUrl", blobUrl);
-
       if (audio) {
         audio.src = blobUrl;
         audio.play();

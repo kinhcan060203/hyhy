@@ -1,4 +1,6 @@
 import { useRef, useState, useEffect } from "react";
+import io from "socket.io-client";
+
 function AutoLogin() {
   const userInfo = {
     username: "becamex",
@@ -7,14 +9,19 @@ function AutoLogin() {
     webpucUrl: "https://45.118.137.185:16888",
     pwdNeedEncrypt: false,
   };
-  const [deviceList, setDeviceList] = useState({ hehe: "haha" });
   const [incomingCall, setIncomingCall] = useState(null);
   const [embeddedCallId, setEmbeddedCallId] = useState(null);
+  const [socket, setSocket] = useState(null);
+  const [event_status, setEventStatus] = useState("idle");
+  let eventStatus = "idle";
+  const hookFlag = 0;
+  const duplexFlag = 1;
+  const call_type = "video";
   let incomingEvtGuid = null;
   let answerAckGuid = null;
   let hangupEvtGuid = null;
   let forceHangupEvtGuid = null;
-
+  let deviceList = {}
   const attemptLogin = async () => {
     console.log("Attempting login");
     try {
@@ -32,8 +39,7 @@ function AutoLogin() {
     }
   };
   const handleIncomingCall = async (incomingInfo) => {
-    console.log("Cuộc gọii đến:", incomingInfo);
-
+    console.log("Calling from:", incomingInfo);
     if ([0, 2].includes(incomingInfo.attribute.call_mode)) {
       setIncomingCall(incomingInfo);
     }
@@ -47,8 +53,8 @@ function AutoLogin() {
   const handleLoginStatusChange = (loginStatus) => {
     console.log("Login status changed", loginStatus);
     if ([0, 2, 3].includes(loginStatus.login_status)) {
-      const storedToken = localStorage.getItem("basedata_id");
-      if (!storedToken) {
+      console.log("%%% Login status changed", eventStatus);
+      if (eventStatus === "idle") {
         attemptLogin();
       }
     }
@@ -72,7 +78,7 @@ function AutoLogin() {
         };
         return acc;
       }, {});
-      setDeviceList(newDeviceList);
+      deviceList = newDeviceList
     } catch (error) {
       console.error("Error fetching device list:", error);
     }
@@ -97,8 +103,56 @@ function AutoLogin() {
       window.lemon.call.removeAnswerAckEvt(answerAckGuid);
     }
   }
+  function setupSocket() {
+    const newSocket = io("http://192.168.101.3:6173");
+    setSocket(newSocket);
+    newSocket.on("connect", () => console.log("✅ WebSocket Connected"));
+    newSocket.on("call.offer", async (offer) => {
+        console.log("%%% ✅ Received call offer:", offer);
+        let alias = offer.deviceId;
+        console.log("%%% alias:", alias);
+        let basedata_id = deviceList[alias].basedata_id;
+        if (!basedata_id) {
+            console.error("%%% basedata_id not found");
+            newSocket.emit("call.answer", {
+              "url": "",
+              "statusCode": 404,
+              "msg": "basedata_id not found",
+          });
+        } else {
+          console.log("%%% basedata_id:", basedata_id);
+          newSocket.emit("call.answer", {
+              "url": `http://192.168.101.3:8173/stream/${call_type}/0?hookFlag=${hookFlag}&duplexFlag=${duplexFlag}&basedata_id=${basedata_id}`,
+              "statusCode": 200,
+              "msg": "success",
+          });
+        }
+
+    });
+    newSocket.on("call", async (offer) => {
+        let status = offer.status;
+        console.log("%% call status:", status);
+        if (status === "call") {
+            setEventStatus("call");
+            eventStatus = "call";
+            attemptLogout();
+        } else if (status === "idle") {
+            setEventStatus("idle");
+            eventStatus = "idle";
+            attemptLogin();
+        }
+    });
+
+    newSocket.emit("call", {
+        status: "idle",
+        basedata_id: null,
+    })
+  }
+
   useEffect(() => {
-    
+    setupSocket()   
+  }, []);
+  useEffect(() => {
     incomingEvtGuid = window.lemon.call.addIncomingEvt(handleIncomingCall);
     answerAckGuid = window.lemon.call.addAnswerAckEvt(() =>
       setEmbeddedCallId(null)
@@ -107,12 +161,13 @@ function AutoLogin() {
     forceHangupEvtGuid = window.lemon.call.addForceHangupEvt(handleEndCall);
     const loginStatusCallbackId =
       window.lemon.login.addLoginStatusChangeListener(handleLoginStatusChange);
-    localStorage.removeItem("basedata_id");
+
     attemptLogin();
 
     return () => {
+      window.lemon.login.removeLoginStatusChangeListener(loginStatusCallbackId);
       teardownCallHandlers();
-      handleLogout();
+      attemptLogout();
     };
   }, []);
   useEffect(() => {
@@ -125,31 +180,29 @@ function AutoLogin() {
     window.lemon.login.removeLoginStatusChangeListener(loginStatusCallbackId);
     window.lemon.call.removeIncomingEvt(incomingEvtGuid);
     window.lemon.call.removeAnswerAckEvt(answerAckGuid);
-    handleLogout();
+    attemptLogout();
   };
-  async function handleLogout() {
-    const res = await window.lemon.login.logout();
-    console.log(res);
-  }
-  useEffect(() => {
-    const handleStorageChange = (event) => {
-      if (event.key === "basedata_id") {
-        console.log("basedata_id changed:", event.newValue);
-        if (!event.newValue) {
-          console.log("basedata_id removed, reattempting login");
-          attemptLogin();
-        } else {
-          console.log("basedata_id updated, logging out");
-          attemptLogout();
-        }
-      }
-    };
 
-    window.addEventListener("storage", handleStorageChange);
-    return () => {
-      window.removeEventListener("storage", handleStorageChange);
-    };
-  }, []);
+  // useEffect(() => {
+  //   const handleStorageChange = (event) => {
+  //     if (event.key === "basedata_id") {
+  //       console.log("basedata_id changed:", event.newValue);
+  //       if (!event.newValue) {
+  //         console.log("basedata_id removed, reattempting login");
+  //         attemptLogin();
+  //       } else {
+  //         console.log("basedata_id updated, logging out");
+  //         attemptLogout();
+  //       }
+  //     }
+  //   };
+
+  //   window.addEventListener("storage", handleStorageChange);
+  //   return () => {
+  //     window.removeEventListener("storage", handleStorageChange);
+  //   };
+  // }, []);
+
   const handleAnswerCall = async () => {
     console.log("Answering call", callId);
     console.log("incomingCall call", incomingCall);
@@ -158,7 +211,7 @@ function AutoLogin() {
     let caller_alias = incomingCall.caller_alias;
     let callId = incomingCall.call_id;
     try {
-      setEmbeddedCallId(`http://localhost:8173/stream/video/1?duplex_flag=${duplex_flag}&listen_flag=${listen_flag}&call_id=${callId}&caller_alias=${caller_alias}`);
+      setEmbeddedCallId(`http://192.168.101.3:8173/stream/video/1?duplex_flag=${duplex_flag}&listen_flag=${listen_flag}&call_id=${callId}&caller_alias=${caller_alias}`);
     } catch (error) {
       console.error("Error answering call", error);
     }
@@ -166,12 +219,11 @@ function AutoLogin() {
 
   return <>
   <h1>Auto Login</h1> 
-  <input type="text" value={embeddedCallId} />
   {
     incomingCall && (
       <div>
         <p>Cuộc gọi đến từ: {incomingCall.caller_number}</p>
-        
+        <input type="text" value={embeddedCallId} />
         <button
           onClick={() => handleAnswerCall()}
         >
