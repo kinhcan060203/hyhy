@@ -1,6 +1,8 @@
 import { useRef, useState, useEffect } from "react";
 import io from "socket.io-client";
 import mqtt from "mqtt";
+import Paho from 'paho-mqtt'; 
+
 function AutoLogin() {
   const userInfo = {
     username: "becamex",
@@ -167,48 +169,54 @@ function AutoLogin() {
   }, []);
 
   useEffect(() => {
-    const mqttClient = mqtt.connect(`ws://${MQTT_BROKER}:${MQTT_PORT}`, {
-      username: MQTT_USERNAME,
-      password: MQTT_PASSWORD,
-      reconnectPeriod: 5000,
-    });
+    const mqttClient = new Paho.Client(`ws://${MQTT_BROKER}:${MQTT_PORT}`, "client-" + Math.random());
 
-    mqttClient.on("connect", () => {
-      console.log("✅ Kết nối MQTT thành công!");
-      setIsConnected(true);
-      mqttClient.subscribe(MQTT_TOPIC);
-    });
+    // Xử lý khi kết nối mất
+    mqttClient.onConnectionLost = (responseObject) => {
+        console.log("Mất kết nối:", responseObject.errorMessage);
+    };
 
-    mqttClient.on(MQTT_TOPIC, (topic, payload) => {
-      console.log("%%% ✅ Received call offer:", topic, payload);
-        let alias = payload.deviceId;
-        console.log("%%% alias:", alias);
-        let basedata_id = deviceList[alias].basedata_id;
-        if (!basedata_id) {
-            console.error("%%% basedata_id not found");
-            mqttClient.publish(MQTT_TOPIC_RESPONSE, {
-              "url": "",
-              "statusCode": 404,
-              "msg": "basedata_id not found",
-          });
-        } else {
-          console.log("%%% basedata_id:", basedata_id);
-          mqttClient.publish(MQTT_TOPIC_RESPONSE, {
-              "url": `http://192.168.101.3:8173/stream/${call_type}/0?hookFlag=${hookFlag}&duplexFlag=${duplexFlag}&basedata_id=${basedata_id}`,
-              "statusCode": 200,
-              "msg": "success",
-          });
+    // Xử lý khi nhận tin nhắn
+    mqttClient.onMessageArrived = (message) => {
+        console.log("Nhận tin nhắn:", message.payloadString);
+        if (message.destinationName === MQTT_TOPIC) {
+            let payload = JSON.parse(message.payloadString);
+            let alias = payload.deviceId;
+            console.log("%%% alias:", alias);
+            let basedata_id = deviceList[alias].basedata_id;
+            if (!basedata_id) {
+                console.error("%%% basedata_id not found");
+                mqttClient.publish(MQTT_TOPIC_RESPONSE, {
+                    "url": "",
+                    "statusCode": 404,
+                    "msg": "basedata_id not found",
+                });
+            } else {
+                console.log("%%% basedata_id:", basedata_id);
+                mqttClient.publish(MQTT_TOPIC_RESPONSE, {
+                    "url": `http://192.168.101.3:8173/stream/${call_type}/0?hookFlag=${hookFlag}&duplexFlag=${duplexFlag}&basedata_id=${basedata_id}`,
+                    "statusCode": 200,
+                    "msg": "success",
+                });
+
+            }
         }
-    });
+    };
 
-    mqttClient.on("error", (err) => {
-      console.error("❌ Lỗi MQTT:", err);
-    });
-
+    // Kết nối MQTT
+    mqttClient.connect({
+        onSuccess: () => {
+            console.log("Đã kết nối MQTT");
+            mqttClient.subscribe(MQTT_TOPIC);
+        },
+        onFailure: (err) => console.error("Kết nối thất bại:", err),
+        userName: "securityalert",
+        password: "securityalert",
+        });
     setClient(mqttClient);
 
     return () => {
-      mqttClient.end(); // Đóng kết nối khi component bị unmount
+        mqttClient.disconnect();
     };
   }, []);
 
