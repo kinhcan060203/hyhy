@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "proxy": "http://103.129.80.171:27018",
   "scripts": {
     "dev": "vite --host --port 8173",
     "build": "vite build",

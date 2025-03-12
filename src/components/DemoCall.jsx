@@ -122,36 +122,40 @@ function DemoCall() {
   //     console.error("Lỗi khi ngắt cuộc gọi:", error, callId);
   //   }
   // }
-  useEffect(() => {
-    // Khởi tạo MQTT Client
-    const mqttClient = new Paho.Client(`ws://${MQTT_BROKER}:${MQTT_PORT}`, "client-" + Math.random());
 
-    // Xử lý khi kết nối mất
-    mqttClient.onConnectionLost = (responseObject) => {
-      console.log("Mất kết nối:", responseObject.errorMessage);
-    };
+    useEffect(() => {
+        // Khởi tạo MQTT Client
+        const clientId = "myClient-" + Math.random().toString(16).substr(2, 8);
+        const mqttClient = new Paho.Client(`ws://103.129.80.171:8099/ws`, clientId);
 
-    // Xử lý khi nhận tin nhắn
-    mqttClient.onMessageArrived = (message) => {
-      console.log("Nhận tin nhắn:", message.payloadString);
-    };
+        // Xử lý khi kết nối mất
+        mqttClient.onConnectionLost = (responseObject) => {
+        console.log("Mất kết nối:", responseObject.errorMessage);
+        };
 
-    // Kết nối MQTT
-    mqttClient.connect({
-        onSuccess: () => {
-          console.log("Đã kết nối MQTT");
-          mqttClient.subscribe(MQTT_TOPIC);
-        },
-        onFailure: (err) => console.error("Kết nối thất bại:", err),
-        userName: "securityalert",
-        password: "securityalert",
-      });
-    setClient(mqttClient);
+        // Xử lý khi nhận tin nhắn
+        mqttClient.onMessageArrived = (message) => {
+        console.log("Nhận tin nhắn:", message.payloadString);
+        };
 
-    return () => {
-        mqttClient.disconnect();
-    };
-  }, []);
+        // Kết nối MQTT
+        mqttClient.connect({
+            onSuccess: () => {
+            console.log("Đã kết nối MQTT");
+            mqttClient.subscribe(MQTT_TOPIC);
+            },
+            onFailure: (error) => {
+                console.error("❌ Lỗi kết nối MQTT:", error.errorMessage);
+              },
+            userName: "ems",
+            password: "ems",
+        });
+        setClient(mqttClient);
+        return () => {
+            console.log("Ngắt kết nối MQTT");
+        };
+    }, []);
+
   const publishMessage = () => {
     if (client && client.isConnected()) {
       const message = new Paho.Message("Hello from React! 🚀");

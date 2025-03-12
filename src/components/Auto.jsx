@@ -20,7 +20,7 @@ function AutoLogin() {
   const [client, setClient] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const MQTT_BROKER = "103.129.80.171";
-  const MQTT_PORT = "27018";
+  const MQTT_PORT = 27018;
   const MQTT_USERNAME = "securityalert";
   const MQTT_PASSWORD = "securityalert";
   const MQTT_TOPIC = "alert-security-media"; 
@@ -169,15 +169,16 @@ function AutoLogin() {
   }, []);
 
   useEffect(() => {
-    const mqttClient = new Paho.Client(`ws://${MQTT_BROKER}:${MQTT_PORT}`, "client-" + Math.random());
+    // Khởi tạo MQTT Client
+    const clientId = "myClient-" + Math.random().toString(16).substr(2, 8);
+    const mqttClient = new Paho.Client(`ws://103.129.80.171:8099/ws`, clientId);
 
     // Xử lý khi kết nối mất
     mqttClient.onConnectionLost = (responseObject) => {
-        console.log("Mất kết nối:", responseObject.errorMessage);
+    console.log("Mất kết nối:", responseObject.errorMessage);
     };
 
-    // Xử lý khi nhận tin nhắn
-    mqttClient.onMessageArrived = (message) => {
+    mqttClient.onMessageArrived = (message) => {    
         console.log("Nhận tin nhắn:", message.payloadString);
         if (message.destinationName === MQTT_TOPIC) {
             let payload = JSON.parse(message.payloadString);
@@ -198,7 +199,6 @@ function AutoLogin() {
                     "statusCode": 200,
                     "msg": "success",
                 });
-
             }
         }
     };
@@ -206,19 +206,23 @@ function AutoLogin() {
     // Kết nối MQTT
     mqttClient.connect({
         onSuccess: () => {
-            console.log("Đã kết nối MQTT");
-            mqttClient.subscribe(MQTT_TOPIC);
+        console.log("Đã kết nối MQTT");
+        mqttClient.subscribe(MQTT_TOPIC);
         },
-        onFailure: (err) => console.error("Kết nối thất bại:", err),
-        userName: "securityalert",
-        password: "securityalert",
-        });
+        onFailure: (error) => {
+            console.error("❌ Lỗi kết nối MQTT:", error.errorMessage);
+          },
+        userName: "ems",
+        password: "ems",
+    });
     setClient(mqttClient);
-
     return () => {
-        mqttClient.disconnect();
+        console.log("Ngắt kết nối MQTT");
+        mqttClient.disconnect()
     };
-  }, []);
+}, []);
+
+
 
 
   useEffect(() => {
