@@ -16,7 +16,7 @@ function DemoCall() {
   const hookFlag = 0;
   const duplexFlag = 1;
   const basedata_id =
-    "fd88c15f15d090841a29b5be71c004f079c5f618c3b51f17cd0935038870351e";
+    "fd88c15f15d090841a29b5be71c004f07ded053d6865c0c78ace4755b7aecab4";
   const [incomingCall, setIncomingCall] = useState(null);
   const [currentCallId, setCurrentCallId] = useState(null);
 
@@ -83,7 +83,7 @@ function DemoCall() {
   function handleCall() {
     console.log("Gọi video", socket);
     socket.emit("call.offer", {
-      deviceId: "BoDam5",
+      deviceId: "BoDam9",
     });
   }
   function setupSocket() {
@@ -136,13 +136,25 @@ function DemoCall() {
         // Xử lý khi nhận tin nhắn
         mqttClient.onMessageArrived = (message) => {
         console.log("Nhận tin nhắn:", message.payloadString);
+        console.log("%%%%",message.destinationName);
+        if (message.destinationName === MQTT_TOPIC) {
+            console.log("Đã nhận tin nhắn từ MQTT:", message.payloadString);
+            const data = JSON.parse(message.payloadString);
+            console.log("Data:", data);
+        }
+        if (message.destinationName === MQTT_TOPIC_RESPONSE) {
+            console.log("Đã nhận tin nhắn từ MQTT:", message.payloadString);
+            const data = JSON.parse(message.payloadString);
+            console.log("Data:", data);
+        }
         };
 
         // Kết nối MQTT
         mqttClient.connect({
             onSuccess: () => {
             console.log("Đã kết nối MQTT");
-            mqttClient.subscribe(MQTT_TOPIC);
+            mqttClient.subscribe(MQTT_TOPIC_RESPONSE);
+
             },
             onFailure: (error) => {
                 console.error("❌ Lỗi kết nối MQTT:", error.errorMessage);
@@ -158,7 +170,7 @@ function DemoCall() {
 
   const publishMessage = () => {
     if (client && client.isConnected()) {
-      const message = new Paho.Message("Hello from React! 🚀");
+      const message = new Paho.Message( JSON.stringify({ "DeviceId": "BoDam5" }));
       message.destinationName = MQTT_TOPIC;
       client.send(message);
       console.log("✅ Đã gửi tin nhắn:", message.payloadString);
@@ -184,7 +196,8 @@ function DemoCall() {
       <button onClick={() => publishMessage()} className="">
         Call with mqtt
       </button>
-      <iframe src={videoLink}
+      <iframe src={videoLink} 
+      allow="microphone; camera"
       width={500} height={500} frameborder="0"></iframe>
       <button onClick={() => endCall()} className="">
         endCall 

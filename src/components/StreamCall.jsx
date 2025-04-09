@@ -192,7 +192,7 @@ function StreamCall() {
       logout();
     };
   }, []);
-
+  
   window.onbeforeunload = () => {
     window.lemon.login.removeLoginStatusChangeListener(loginStatusCallbackId);
     if (socket) {

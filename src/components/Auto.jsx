@@ -26,10 +26,20 @@ function AutoLogin() {
   const MQTT_TOPIC = "alert-security-media"; 
   const MQTT_TOPIC_RESPONSE = "alert-security-media-response"; 
 
-
+  const formatText = (input) => {
+    // Tách phần chữ và số
+    const match = input.match(/^([A-Z_]+)(\d+)$/);
+    if (!match) return input; // Trả về nguyên nếu không đúng format
+    
+    let [_, letters, numbers] = match;
+    numbers = Number(numbers)
+    console.log("%% letters:", letters);
+    console.log("%% numbers:", numbers);
+    return `BoDam${numbers}`;
+  };
 
   let eventStatus = "idle";
-  const hookFlag = 0;
+  const hookFlag = 1;
   const duplexFlag = 1;
   const call_type = "video";
   let incomingEvtGuid = null;
@@ -119,7 +129,12 @@ function AutoLogin() {
     }
   }
   function setupSocket() {
-    const newSocket = io("http://192.168.101.3:6173");
+    const newSocket = io("http://192.168.101.3:6173", {
+      reconnection: true, // Tự động reconnect
+      reconnectionAttempts: 10, // Số lần thử reconnect (mặc định là vô hạn)
+      reconnectionDelay: 2000, // Thời gian giữa các lần thử (ms)
+      transports: ["websocket"], // Đảm bảo dùng WebSocket thay vì polling
+    });
     setSocket(newSocket);
     newSocket.on("connect", () => console.log("✅ WebSocket Connected"));
     newSocket.on("call.offer", async (offer) => {
@@ -160,7 +175,7 @@ function AutoLogin() {
 
     newSocket.emit("call", {
         status: "idle",
-        basedata_id: null,
+        basedata_id: "",
     })
   }
 
@@ -175,45 +190,65 @@ function AutoLogin() {
 
     // Xử lý khi kết nối mất
     mqttClient.onConnectionLost = (responseObject) => {
-    console.log("Mất kết nối:", responseObject.errorMessage);
+    console.log("%%% Mất kết nối:", responseObject.errorMessage);
+    // re
     };
 
     mqttClient.onMessageArrived = (message) => {    
-        console.log("Nhận tin nhắn:", message.payloadString);
+        console.log("%%% Nhận tin nhắn:", message.payloadString);
+        console.log("%%%%",message.destinationName);
         if (message.destinationName === MQTT_TOPIC) {
+            handleFetchDeviceList();
             let payload = JSON.parse(message.payloadString);
-            let alias = payload.deviceId;
-            console.log("%%% alias:", alias);
-            let basedata_id = deviceList[alias].basedata_id;
+            let alias = payload.DeviceId;
+            // let formated_alias = formatText(alias)
+            let formated_alias = alias;
+            console.log("%%% alias:", formated_alias);
+
+            let basedata_id = deviceList[formated_alias].basedata_id;
+
             if (!basedata_id) {
                 console.error("%%% basedata_id not found");
-                mqttClient.publish(MQTT_TOPIC_RESPONSE, {
-                    "url": "",
-                    "statusCode": 404,
-                    "msg": "basedata_id not found",
-                });
+                let payload = JSON.stringify(
+                    {
+                        "DeviceId": alias,
+                        "url": "",
+                        "statusCode": 404,
+                        "msg": "basedata_id not found",
+                    }
+                )
+                mqttClient.publish(MQTT_TOPIC_RESPONSE, payload);
             } else {
                 console.log("%%% basedata_id:", basedata_id);
-                mqttClient.publish(MQTT_TOPIC_RESPONSE, {
-                    "url": `http://192.168.101.3:8173/stream/${call_type}/0?hookFlag=${hookFlag}&duplexFlag=${duplexFlag}&basedata_id=${basedata_id}`,
-                    "statusCode": 200,
-                    "msg": "success",
-                });
+                let payload = JSON.stringify(
+                    {
+                        "DeviceId": alias,
+                        "url": `http://192.168.101.3:8173/stream/${call_type}/0?hookFlag=${hookFlag}&duplexFlag=${duplexFlag}&basedata_id=${basedata_id}`,
+                        "statusCode": 200,
+                        "msg": "success",   
+                    }
+                )
+                console.log("%%%", payload, MQTT_TOPIC_RESPONSE)
+                mqttClient.publish(MQTT_TOPIC_RESPONSE, payload);
             }
         }
     };
-
+    // http://localhost:8174/stream/video/0?hookFlag=0&duplexFlag=1&basedata_id=fd88c15f15d090841a29b5be71c004f079c5f618c3b51f17cd0935038870351e
     // Kết nối MQTT
     mqttClient.connect({
         onSuccess: () => {
-        console.log("Đã kết nối MQTT");
+        console.log("%%%% Đã kết nối MQTT");
         mqttClient.subscribe(MQTT_TOPIC);
+
         },
         onFailure: (error) => {
             console.error("❌ Lỗi kết nối MQTT:", error.errorMessage);
           },
         userName: "ems",
         password: "ems",
+        reconnect: true, 
+        keepAliveInterval: 10, 
+
     });
     setClient(mqttClient);
     return () => {
@@ -245,7 +280,9 @@ function AutoLogin() {
   }, []);
   useEffect(() => {
     console.log("%% deviceList changed", deviceList);
-
+    if (deviceList.length ==0) {
+      handleFetchDeviceList();
+    }
     return () => {};
   }, [deviceList]);
 
