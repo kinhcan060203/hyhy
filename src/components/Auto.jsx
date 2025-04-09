@@ -1,11 +1,11 @@
 import { useRef, useState, useEffect } from "react";
 import io from "socket.io-client";
 import mqtt from "mqtt";
-import Paho from 'paho-mqtt'; 
+import Paho from "paho-mqtt";
 
 function AutoLogin() {
   const userInfo = {
-    username: "becamex",
+    username: "becamex2",
     password: "vn123456",
     realm: "puc.com",
     webpucUrl: "https://45.118.137.185:16888",
@@ -15,28 +15,21 @@ function AutoLogin() {
   const [embeddedCallId, setEmbeddedCallId] = useState(null);
   const [socket, setSocket] = useState(null);
   const [event_status, setEventStatus] = useState("idle");
-
+  const [devices_sub_gps, setDevicesGpsSub] = useState({});
+  let mqttClientGPS = null;
+  const intervalRef = useRef(null);
+  const [devices_gps_map, setDevicesGpsMap] = useState({});
 
   const [client, setClient] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
+
   const MQTT_BROKER = "103.129.80.171";
-  const MQTT_PORT = 27018;
+  const MQTT_PORT = "8099";
   const MQTT_USERNAME = "securityalert";
   const MQTT_PASSWORD = "securityalert";
-  const MQTT_TOPIC = "alert-security-media"; 
-  const MQTT_TOPIC_RESPONSE = "alert-security-media-response"; 
-
-  const formatText = (input) => {
-    // Tách phần chữ và số
-    const match = input.match(/^([A-Z_]+)(\d+)$/);
-    if (!match) return input; // Trả về nguyên nếu không đúng format
-    
-    let [_, letters, numbers] = match;
-    numbers = Number(numbers)
-    console.log("%% letters:", letters);
-    console.log("%% numbers:", numbers);
-    return `BoDam${numbers}`;
-  };
+  const MQTT_GPS_TOPIC = "alert-security-gps";
+  const MQTT_TOPIC = "alert-security-media";
+  const MQTT_TOPIC_RESPONSE = "alert-security-media-response";
 
   let eventStatus = "idle";
   const hookFlag = 1;
@@ -46,7 +39,7 @@ function AutoLogin() {
   let answerAckGuid = null;
   let hangupEvtGuid = null;
   let forceHangupEvtGuid = null;
-  let deviceList = {}
+  let deviceList = {};
   const attemptLogin = async () => {
     console.log("Attempting login");
     try {
@@ -103,7 +96,7 @@ function AutoLogin() {
         };
         return acc;
       }, {});
-      deviceList = newDeviceList
+      deviceList = newDeviceList;
     } catch (error) {
       console.error("Error fetching device list:", error);
     }
@@ -138,39 +131,38 @@ function AutoLogin() {
     setSocket(newSocket);
     newSocket.on("connect", () => console.log("✅ WebSocket Connected"));
     newSocket.on("call.offer", async (offer) => {
-        console.log("%%% ✅ Received call offer:", offer);
-        let alias = offer.deviceId;
-        console.log("%%% alias:", alias);
-        let basedata_id = deviceList[alias].basedata_id;
-        if (!basedata_id) {
-            console.error("%%% basedata_id not found");
-            newSocket.emit("call.answer", {
-              "url": "",
-              "statusCode": 404,
-              "msg": "basedata_id not found",
-          });
-        } else {
-          console.log("%%% basedata_id:", basedata_id);
-          newSocket.emit("call.answer", {
-              "url": `http://192.168.101.3:8173/stream/${call_type}/0?hookFlag=${hookFlag}&duplexFlag=${duplexFlag}&basedata_id=${basedata_id}`,
-              "statusCode": 200,
-              "msg": "success",
-          });
-        }
-
+      console.log("%%% ✅ Received call offer:", offer);
+      let alias = offer.deviceId;
+      console.log("%%% alias:", alias);
+      let basedata_id = deviceList[alias].basedata_id;
+      if (!basedata_id) {
+        console.error("%%% basedata_id not found");
+        newSocket.emit("call.answer", {
+          url: "",
+          statusCode: 404,
+          msg: "basedata_id not found",
+        });
+      } else {
+        console.log("%%% basedata_id:", basedata_id);
+        newSocket.emit("call.answer", {
+          url: `http://192.168.101.3:8173/stream/${call_type}/0?hookFlag=${hookFlag}&duplexFlag=${duplexFlag}&basedata_id=${basedata_id}`,
+          statusCode: 200,
+          msg: "success",
+        });
+      }
     });
     newSocket.on("call", async (offer) => {
-        let status = offer.status;
-        console.log("%% call status:", status);
-        if (status === "call") {
-            setEventStatus("call");
-            eventStatus = "call";
-            attemptLogout();
-        } else if (status === "idle") {
-            setEventStatus("idle");
-            eventStatus = "idle";
-            attemptLogin();
-        }
+      let status = offer.status;
+      console.log("%% call status:", status);
+      if (status === "call") {
+        setEventStatus("call");
+        eventStatus = "call";
+        attemptLogout();
+      } else if (status === "idle") {
+        setEventStatus("idle");
+        eventStatus = "idle";
+        attemptLogin();
+      }
     });
 
     newSocket.emit("call", {
@@ -179,19 +171,130 @@ function AutoLogin() {
     })
   }
 
+  const fetchSubDeviceList = async () => {
+    const pageIndex = 1;
+    const pageSize = 10000;
+    try {
+      const resp = await window.lemon.gis.fetchSubDeviceList({
+        page_index: pageIndex,
+        page_size: pageSize,
+      });
+      if (resp.result === 0) {
+        return resp.sub_device_list;
+      } else {
+        alert(`fetchSubDeviceList failed`);
+        return [];
+      }
+    } catch (error) {
+      console.error("### Error calling fetchSubDeviceList:", error);
+      return [];
+    }
+  };
+
+  const queryRecordGPS = async () => {
+    try {
+      let subDeviceList = await fetchSubDeviceList();
+      if (!subDeviceList || subDeviceList.length === 0) {
+        if (devices_sub_gps.length !== 0) {
+          subDeviceList = devices_sub_gps;
+        } else {
+          console.warn("%% No sub devices found");
+        }
+        return [];
+      } else if (subDeviceList.length > 0) {
+        setDevicesGpsSub(subDeviceList);
+      }
+
+      const now = new Date();
+      const oneMinuteAgo = new Date(now.getTime() - 60 * 1000);
+
+      const gpsDataList = [];
+      for (const item of subDeviceList) {
+        const basedata_id = item.basedata_id;
+        const resp = await window.lemon.gis.queryRecordGPS({
+          basedata_id,
+          start_time: oneMinuteAgo.toISOString(),
+          end_time: now.toISOString(),
+        });
+        if (resp.gps_record_list.length > 0) {
+          let filtered = resp.gps_record_list[0];
+          gpsDataList.push({
+            deviceId: item.alias,
+            lng: filtered.longitude,
+            lat: filtered.latitude,
+            dateTime: filtered.gps_datetime,
+          });
+          //   const filtered = resp.gps_record_list.find((point) => {
+          //     const date = new Date(point.gps_datetime);
+          //     return date.getSeconds() === 0;
+          //   });
+
+          //   if (filtered) {
+          //     gpsDataList.push({
+          //       deviceId: item.alias,
+          //       lng: filtered.longitude,
+          //       lat: filtered.latitude,
+          //       dateTime: filtered.gps_datetime,
+          //     });
+          //   }
+        }
+      }
+      if (gpsDataList.length === 0) {
+        console.warn("### No GPS data found");
+        return [];
+      }
+      console.log("### mqttClientGPS:", mqttClientGPS);
+      mqttClientGPS.publish(MQTT_GPS_TOPIC, JSON.stringify(gpsDataList));
+      console.log("### Tổng hợp GPS:", gpsDataList);
+      return gpsDataList;
+    } catch (error) {
+      console.error(`queryRecordGPS failed: ${error}`);
+      return [];
+    }
+  };
+
   useEffect(() => {
-    setupSocket()   
+    setupSocket();
+    intervalRef.current = setInterval(() => {
+      queryRecordGPS();
+    }, 60 * 1000);
+    return () => clearInterval(intervalRef.current);
   }, []);
 
   useEffect(() => {
-    // Khởi tạo MQTT Client
-    const clientId = "myClient-" + Math.random().toString(16).substr(2, 8);
-    const mqttClient = new Paho.Client(`ws://103.129.80.171:8099/ws`, clientId);
+    mqttClientGPS = new Paho.Client(
+      `ws://${MQTT_BROKER}:${MQTT_PORT}/ws`,
+      "client-" + Math.random()
+    );
+    mqttClientGPS.onConnectionLost = (responseObject) => {
+      console.log("### Mất kết nối:", responseObject.errorMessage);
+    };
+    mqttClientGPS.connect({
+      onSuccess: () => {
+        console.log("### Đã kết nối MQTT GPS");
+        mqttClientGPS.subscribe(MQTT_GPS_TOPIC);
+      },
+      onFailure: (err) => console.error("### Kết nối thất bại:", err),
+      userName: MQTT_USERNAME,
+      password: MQTT_PASSWORD,
+      useSSL: false,
+      reconnect: true, 
+      keepAliveInterval: 10, 
+    });
 
-    // Xử lý khi kết nối mất
+    return () => {
+      mqttClientGPS.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    const mqttClient = new Paho.Client(
+      `ws://${MQTT_BROKER}:${MQTT_PORT}/ws`,
+      "client-" + Math.random()
+    );
+
     mqttClient.onConnectionLost = (responseObject) => {
-    console.log("%%% Mất kết nối:", responseObject.errorMessage);
-    // re
+      console.log("Mất kết nối:", responseObject.errorMessage);
     };
 
     mqttClient.onMessageArrived = (message) => {    
@@ -244,8 +347,8 @@ function AutoLogin() {
         onFailure: (error) => {
             console.error("❌ Lỗi kết nối MQTT:", error.errorMessage);
           },
-        userName: "ems",
-        password: "ems",
+        userName: MQTT_USERNAME,
+        password: MQTT_PASSWORD,
         reconnect: true, 
         keepAliveInterval: 10, 
 
@@ -321,30 +424,29 @@ function AutoLogin() {
     let caller_alias = incomingCall.caller_alias;
     let callId = incomingCall.call_id;
     try {
-      setEmbeddedCallId(`http://192.168.101.3:8173/stream/video/1?duplex_flag=${duplex_flag}&listen_flag=${listen_flag}&call_id=${callId}&caller_alias=${caller_alias}`);
+      setEmbeddedCallId(
+        `http://192.168.101.3:8173/stream/video/1?duplex_flag=${duplex_flag}&listen_flag=${listen_flag}&call_id=${callId}&caller_alias=${caller_alias}`
+      );
     } catch (error) {
       console.error("Error answering call", error);
     }
-  }
+  };
 
-  return <>
-  <h1>Auto Login</h1> 
-  {
-    incomingCall && (
-      <div>
-        <p>Cuộc gọi đến từ: {incomingCall.caller_number}</p>
-        <input type="text" value={embeddedCallId} />
-        <button
-          onClick={() => handleAnswerCall()}
-        >
-          Trả lời
-        </button>
-        {/* <button onClick={async () => await handleHangup(currentCallId)}>
+  return (
+    <>
+      <h1>Auto Login</h1>
+      {incomingCall && (
+        <div>
+          <p>Cuộc gọi đến từ: {incomingCall.caller_number}</p>
+          <input type="text" value={embeddedCallId} />
+          <button onClick={() => handleAnswerCall()}>Trả lời</button>
+          {/* <button onClick={async () => await handleHangup(currentCallId)}>
       Tắt cuộc gọi
     </button> */}
-      </div>)
-  }
-  </>;
+        </div>
+      )}
+    </>
+  );
 }
 
 export default AutoLogin;

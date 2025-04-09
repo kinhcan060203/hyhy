@@ -1,24 +1,27 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 function InfoDevices() {
   const [deviceId, setDeviceId] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
+  const [devices_gps_map, setDevicesGpsMap] = useState({});
 
   const [gpsReport, setGpsReport] = useState(null);
   const [listenerId, setListenerId] = useState(null);
   const [interval_time, setIntervalTime] = useState(5);
+  const intervalRef = useRef(null);
 
   const handleGPSReport = (gpsReportInfo) => {
     let gps_list = gpsReportInfo.gps_list;
     let uniqueDevices = {};
     gps_list = gps_list.filter((gps) => {
-      if (uniqueDevices[gps.device_number]) {
+      if (uniqueDevices[gps.device_alias]) {
         return false;
       }
-      uniqueDevices[gps.device_number] = true;
+      uniqueDevices[gps.device_alias] = gps;
       return true;
     });
-    console.log(gps_list);
+    console.log("#### uniqueDevices", uniqueDevices);
+    setDevicesGpsMap(uniqueDevices);
     setGpsReport(gps_list);
   };
   const addListener = () => {
@@ -71,23 +74,21 @@ function InfoDevices() {
 
   const queryRecordGPS = useCallback(async () => {
     try {
-      let date = new Date(startTime + " UTC"); // Force parsing as UTC
-      let startT = date.toISOString();
-
-      let endT = new Date(endTime + " UTC"); // Force parsing as UTC
-      endT = date.toISOString();
+      const now = new Date();
+      const oneMinuteAgo = new Date(now.getTime() - 60 * 1000);
 
       const resp = await window.lemon.gis.queryRecordGPS({
         basedata_id: deviceId,
-        start_time: startT,
-        end_time: endT,
+        start_time: oneMinuteAgo.toISOString(),
+        end_time: now.toISOString(),
       });
-      console.log("@@@@@", resp);
-      alert(`queryRecordGPS ok`);
+
+      console.log("##### queryRecordGPS", resp);
+      alert(`queryRecordGPS ok ${resp}`);
     } catch (error) {
-      alert(`queryRecordGPS failed`);
+      alert(`queryRecordGPS failed ${error}`);
     }
-  });
+  }, [deviceId]);
 
   const setupSubcribeInit = useCallback(
     async ({ deviceId, interval_time = 5 }) => {
@@ -220,10 +221,26 @@ function OtherFunction() {
     </>
   );
 }
+const queryRecordGPS = async () => {
+  try {
+    const now = new Date();
+    const oneMinuteAgo = new Date(now.getTime() - 60 * 1000);
+
+    const resp = await window.lemon.gis.queryRecordGPS({
+      basedata_id: deviceId,
+      start_time: oneMinuteAgo.toISOString(),
+      end_time: now.toISOString(),
+    });
+
+    console.log("#### Conmeo", resp);
+  } catch (error) {
+    console.error(`queryRecordGPS failed: ${error}`);
+  }
+};
 
 function GetSubDeviceList() {
-  const pageIndex = 0;
-  const pageSize = 10;
+  const pageIndex = 1;
+  const pageSize = 10000;
   const [subDeviceList, setSubDeviceList] = useState([]);
 
   const fetchSubDeviceList = useCallback(async () => {
@@ -263,7 +280,7 @@ function GetSubDeviceList() {
         <button onClick={fetchSubDeviceList}>fetchSubDeviceList</button>
         <button onClick={syncSubscribeList}>syncSubscribeList</button>
       </div>
-      
+
       {subDeviceList.length > 0 && (
         <>
           <ul>
