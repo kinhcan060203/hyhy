@@ -10,6 +10,8 @@ services:
       - "8173:8173"
     networks:
       - smart-sdk
+    volumes:
+      - ../:/app
     tty: true
     restart: unless-stopped
     logging:

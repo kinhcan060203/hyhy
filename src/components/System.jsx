@@ -80,7 +80,7 @@ function System() {
   }
   async function handleLogin() {
     let userInfo = {
-      username: "becamex2",
+      username: "becamex",
       password: "vn123456",
       realm: "puc.com",
       webpucUrl: "https://45.118.137.185:16888",

@@ -9,7 +9,7 @@ function StreamCall() {
   const [callState, setCallState] = useState("idle");
   const [callId, setCallId] = useState(null);
   const [loginStatusCallbackId, setLoginStatusCallbackId] = useState(null);
-  const [socket, setSocket] = useState(null);
+  const socket = useRef(null);
   const [basedataid, setBaseDataID] = useState(null);
   let dataid = null
   const localVideoRef = useRef(null);
@@ -17,7 +17,7 @@ function StreamCall() {
   const remoteAudioRef = useRef(null);
 
   const userInfo = {
-    username: "becamex2",
+    username: "becamex",
     password: "vn123456",
     realm: "puc.com",
     webpucUrl: "https://45.118.137.185:16888",
@@ -58,6 +58,10 @@ function StreamCall() {
     if (callInfo?.disconnect_reason === 0) {
       await hangupCall(callInfo.call_id);
       teardownCallHandlers();
+      socket.current.emit("call", {
+        status: "idle",
+        basedata_id: null,
+      });
     }
   };
 
@@ -120,6 +124,7 @@ function StreamCall() {
       await window.lemon.call.hangupCall({ call_id: callId });
       setCallState("stopping");
       setCallId(null);
+      
     } catch (error) {
       console.error("Error ending call:", error);
     }
@@ -128,7 +133,7 @@ function StreamCall() {
   const handleLoginStatusChange = async (loginStatus) => {
     if ([0, 2, 3].includes(loginStatus.login_status)) {
       console.log("%%% Login status changed", dataid, sessionStorage.getItem("basedata_id"));
-      if (dataid === sessionStorage.getItem("basedata_id")) {
+      if (dataid === sessionStorage.getItem("basedata_id") && callState !== "stopping" && callState !== "disconnecting") {
         console.log("Starting call...");
         await handleLogin();
         await setupCallHandlers();
@@ -146,7 +151,7 @@ function StreamCall() {
   }
   function setupSocket() {
     const newSocket = io("http://192.168.101.3:6173");
-    setSocket(newSocket);
+    socket.current = newSocket;
     newSocket.on("connect", () => console.log("✅ WebSocket Connected"));
     
     newSocket.on("call", async (offer) => {
@@ -157,10 +162,10 @@ function StreamCall() {
         if (_basedata_id === params.basedata_id) {
             startCallSession()
         } else if (_basedata_id === null) {
-            startCallSession()
-            setCallState("disconnecting");
-            newSocket.emit('call', { status:"call", basedata_id: params.basedata_id });
-
+            // startCallSession()
+            // setCallState("disconnecting");
+            // newSocket.emit('call', { status:"call", basedata_id: params.basedata_id });
+            logout();
         } else {
             logout();
         }
@@ -168,13 +173,20 @@ function StreamCall() {
     newSocket.emit('call', { status:"call", basedata_id: params.basedata_id });
   }
     useEffect(() => {
-      console.log("%%% init media")
         setupSocket()   
         // let media = navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         // console.log("%%% media", media)
+        return () => {
+          if (socket?.current) {
+            console.log("##### disconnect socket", socket.current)
+            socket.current.emit('call', { status:"idle", basedata_id: null });
+          }
+        }
     }, []);
 
   useEffect(() => {
+    console.log("##### loading page...");
+
     sessionStorage.setItem("basedata_id", params.basedata_id);
     setBaseDataID(params.basedata_id);
     dataid = params.basedata_id
@@ -185,8 +197,8 @@ function StreamCall() {
 
     return () => {
       window.lemon.login.removeLoginStatusChangeListener(loginStatusCallbackId);
-      if (socket) {
-        socket.emit('call', { status:"idle", basedata_id: null });
+      if (socket?.current) {
+        socket?.current.emit('call', { status:"idle", basedata_id: null });
       }
      
       logout();
@@ -194,18 +206,19 @@ function StreamCall() {
   }, []);
   
   window.onbeforeunload = () => {
+    console.log("#### Unloading page...");
     window.lemon.login.removeLoginStatusChangeListener(loginStatusCallbackId);
-    if (socket) {
-        socket.emit('call', { status:"idle", basedata_id: null });
+    if (socket?.current) {
+        socket?.current.emit('call', { status:"idle", basedata_id: null });
     }
     logout();
   };
 
   const initiateCall = async () => {
     console.log("Starting call...");
+    setCallState("calling");
     await handleLogin();
     await setupCallHandlers();
-    setCallState("calling");
     setTimeout(startVideoCall, 1000);
   };
   const restartVideoCall = async () => {
