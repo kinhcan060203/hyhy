@@ -1,28 +1,16 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, useLocation } from "react-router-dom";
 import io from "socket.io-client";
-
+import { userInfo }  from "../utils/constants";
+import { handleAttemptLogin, handleAttemptLogout } from "../utils/common";
 function StreamCall() {
   const { call_type, call_mode } = useParams();
   const query = new URLSearchParams(useLocation().search);
 
-  const [callState, setCallState] = useState("idle");
-  const [callId, setCallId] = useState(null);
-  const [loginStatusCallbackId, setLoginStatusCallbackId] = useState(null);
   const socket = useRef(null);
-  const [basedataid, setBaseDataID] = useState(null);
-  let dataid = null
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const remoteAudioRef = useRef(null);
-
-  const userInfo = {
-    username: "becamex",
-    password: "vn123456",
-    realm: "puc.com",
-    webpucUrl: "https://45.118.137.185:16888",
-    pwdNeedEncrypt: false,
-  };
 
   const params = {
     hookFlag: query.get("hookFlag"),
@@ -36,37 +24,20 @@ function StreamCall() {
   let mediaStreamGuid = null;
   let hangupEvtGuid = null;
   let forceHangupEvtGuid = null;
+  const callSessionId = useRef(null);
+  const basedataId = useRef(null);
 
-  const handleLogin = async () => {
-    try {
-      console.log("%%% Attempting login...");
-      const resp = await window.lemon.login.login(userInfo);
-        if (resp.result !== 0) {
-        console.log("%%% Login failed, retrying...");
-        handleLogin()
-        } else {
-        console.log("%%% Login successful");
-        }
-    } catch (error) {
-      console.error("%%% Login error:", error);
-    }
-    console.log("%%% Logged in successfully");
-  };
-
+  const [statusMap, setStatusMap] = useState("idle");
   const handleEndCall = async (callInfo) => {
-    console.log("Ending call...", callInfo);
     if (callInfo?.disconnect_reason === 0) {
       await hangupCall(callInfo.call_id);
       teardownCallHandlers();
-      socket.current.emit("call", {
-        status: "idle",
-        basedata_id: null,
-      });
+
     }
   };
 
   const setupCallHandlers = async () => {
-    window.lemon.call.addAnswerAckEvt(() => setCallState("talking"));
+    window.lemon.call.addAnswerAckEvt(() => setStatusMap("talking"));
     mediaStreamGuid = window.lemon.call.addMediaStream(
       (callId, stream, type) => {
         if (type === "video_src" && localVideoRef.current) {
@@ -104,6 +75,7 @@ function StreamCall() {
       lemon.call.removeMediaStream(mediaStreamGuid);
     }
   };
+
   const handleAnswerCall = async () => {
     if (!params.call_id) return console.error("No incoming call");
     try {
@@ -122,8 +94,8 @@ function StreamCall() {
     if (!callId) return;
     try {
       await window.lemon.call.hangupCall({ call_id: callId });
-      setCallState("stopping");
-      setCallId(null);
+      setStatusMap("stopped");
+      callSessionId.current = null;
       
     } catch (error) {
       console.error("Error ending call:", error);
@@ -132,13 +104,11 @@ function StreamCall() {
 
   const handleLoginStatusChange = async (loginStatus) => {
     if ([0, 2, 3].includes(loginStatus.login_status)) {
-      console.log("%%% Login status changed", dataid, sessionStorage.getItem("basedata_id"));
-      if (dataid === sessionStorage.getItem("basedata_id") && callState !== "stopping" && callState !== "disconnecting") {
-        console.log("Starting call...");
-        await handleLogin();
+      if (basedataId.current === sessionStorage.getItem("basedata_id") && statusMap !== "stopped") {
+        await handleAttemptLogin(userInfo);
         await setupCallHandlers();
-        setCallState("calling");
-        setTimeout(restartVideoCall, 1000);
+        setStatusMap("calling");
+        setTimeout(() => startVideoCall(0), 1000);
       }
     }
   };
@@ -149,123 +119,94 @@ function StreamCall() {
         handleAnswerCall();
     }
   }
-  function setupSocket() {
+  const setupSocket = () => {
     const newSocket = io("http://192.168.101.3:6173");
     socket.current = newSocket;
+  
     newSocket.on("connect", () => console.log("✅ WebSocket Connected"));
-    
+  
     newSocket.on("call", async (offer) => {
-        let _basedata_id = offer.basedata_id
-        console.log("%%% 📥 Received OFFER:", offer);
-        setBaseDataID(_basedata_id);
-        dataid = _basedata_id
-        if (_basedata_id === params.basedata_id) {
-            startCallSession()
-        } else if (_basedata_id === null) {
-            // startCallSession()
-            // setCallState("disconnecting");
-            // newSocket.emit('call', { status:"call", basedata_id: params.basedata_id });
-            logout();
-        } else {
-            logout();
-        }
-      });
-    newSocket.emit('call', { status:"call", basedata_id: params.basedata_id });
-  }
-    useEffect(() => {
-        setupSocket()   
-        // let media = navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        // console.log("%%% media", media)
-        return () => {
-          if (socket?.current) {
-            console.log("##### disconnect socket", socket.current)
-            socket.current.emit('call', { status:"idle", basedata_id: null });
-          }
-        }
-    }, []);
-
+      console.log("📥 Received OFFER:", offer);
+      const bdata_id = offer.basedata_id;
+      basedataId.current = bdata_id;
+      if (bdata_id === sessionStorage.getItem("basedata_id")) {
+        startCallSession();
+      } else {
+        handleAttemptLogout();
+      }
+    });
+  
+    newSocket.emit("call", { status: "call", basedata_id: params.basedata_id });
+  };
+  
   useEffect(() => {
-    console.log("##### loading page...");
-
     sessionStorage.setItem("basedata_id", params.basedata_id);
-    setBaseDataID(params.basedata_id);
-    dataid = params.basedata_id
-    startCallSession()
-    const loginStatusCallbackId = window.lemon.login.addLoginStatusChangeListener(
-      handleLoginStatusChange
-    );
-
+    basedataId.current = params.basedata_id;
+    const loginStatusCallbackId = window.lemon.login.addLoginStatusChangeListener(handleLoginStatusChange);
+    setupSocket();
+    startCallSession();
+  
     return () => {
       window.lemon.login.removeLoginStatusChangeListener(loginStatusCallbackId);
-      if (socket?.current) {
-        socket?.current.emit('call', { status:"idle", basedata_id: null });
-      }
-     
-      logout();
     };
   }, []);
   
-  window.onbeforeunload = () => {
-    console.log("#### Unloading page...");
-    window.lemon.login.removeLoginStatusChangeListener(loginStatusCallbackId);
-    if (socket?.current) {
-        socket?.current.emit('call', { status:"idle", basedata_id: null });
-    }
-    logout();
-  };
+
+    useEffect(() => {
+      const onUnload = () => {
+        console.log("### Iframe or page is unloading");
+        if (socket?.current) {
+          socket?.current.emit('call', { status:"idle", basedata_id: null });
+        }
+        handleAttemptLogout();
+      };
+    
+      window.addEventListener("unload", onUnload);
+      window.addEventListener("beforeunload", onUnload);
+
+    
+      return () => {
+        window.removeEventListener("unload", onUnload);
+        window.removeEventListener("beforeunload", onUnload);
+      };
+    }, []);
+    
+
 
   const initiateCall = async () => {
-    console.log("Starting call...");
-    setCallState("calling");
-    await handleLogin();
+    setStatusMap("calling");
+    await handleAttemptLogin(userInfo);
     await setupCallHandlers();
-    setTimeout(startVideoCall, 1000);
+    setTimeout(() => startVideoCall(params.hookFlag), 1000);
   };
-  const restartVideoCall = async () => {
-    try {
-        const resp = await window.lemon.call.makeVideoCall({
-          basedata_id: params.basedata_id,
-          video_frame_size: 3,
-          hook_flag: 0,
-        });
-        setCallId(resp.call_id);
-        if (params.hookFlag === "1") setCallState("waiting");
-      } catch (error) {
-        console.error("Call initiation failed", error);
-        setTimeout(initiateCall, 1000);
-      }
-  }
 
-  const startVideoCall = async () => {
+  const startVideoCall = async (hook_flag) => {
     try {
       const resp = await window.lemon.call.makeVideoCall({
         basedata_id: params.basedata_id,
         video_frame_size: 3,
-        hook_flag: +params.hookFlag,
+        hook_flag: +hook_flag,
       });
-      setCallId(resp.call_id);
-      if (params.hookFlag === "1") setCallState("waiting");
+      if (resp.result !== 0) {
+        console.error("Error making call:", resp);
+        return;
+      }
+      callSessionId.current = resp.call_id;
+      setStatusMap("talking");
+
     } catch (error) {
       console.error("Call initiation failed", error);
-      setTimeout(initiateCall, 1000);
+      setTimeout(initiateCall, 2000);
     }
   };
-  const logout = async () => {
-    try {
-      const response = await window.lemon.login.logout();
-      console.log("Logged out successfully", response);
-    } catch (error) {
-      console.error("Error logging out", error);
-    }
-  };
-  console.log("%% callState", callState);
+
   return (
     <div className="flex items-center justify-center h-screen bg-black relative w-full">
-      {callState === "idle" && <h1 className="text-white text-3xl font-bold absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">Connecting...</h1>}
-      {callState === "calling" && <h1 className="text-white text-3xl font-bold absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">Calling...</h1>}
-      {callState === "stopping" && <h1 className="text-white text-3xl font-bold absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">Stopped...</h1>}
-      {callState === "waiting" && <h1 className="text-white text-3xl font-bold absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">Waiting...</h1>}
-      {callState === "disconnecting" && <h1 className="text-white text-3xl font-bold absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">Disconnecting...</h1>}
+      {statusMap === "idle" && <h1 className="text-white text-3xl font-bold absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">Connecting...</h1>}
+      {statusMap === "calling" && <h1 className="text-white text-3xl font-bold absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">Calling...</h1>}
+      {statusMap === "stopped" && <h1 className="text-white text-3xl font-bold absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">Stopped...</h1>}
+      {statusMap === "waiting" && <h1 className="text-white text-3xl font-bold absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">Waiting...</h1>}
+      {statusMap === "disconnecting" && <h1 className="text-white text-3xl font-bold absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">Disconnecting...</h1>}
 
       <video ref={remoteVideoRef} crossOrigin="anonymous" autoPlay playsInline className="w-full h-full object-cover" />
       <audio ref={remoteAudioRef} crossOrigin="anonymous" autoPlay />

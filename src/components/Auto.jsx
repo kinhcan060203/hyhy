@@ -9,7 +9,7 @@ import {
   handleFetchSubDeviceList,
   handleQueryRecordGPS,
 } from "../utils/common";
-import { generateFakeGPSData } from "../utils/tool";
+import { generateFakeGPSData, median } from "../utils/tool";
 
 function AutoLogin() {
   const userInfo = {
@@ -161,10 +161,8 @@ function AutoLogin() {
 
   const queryRecordGPS = async () => {
     try {
-      // Lấy danh sách thiết bị con
       let devicesSubGPS = await handleFetchDeviceList();
 
-      // Dùng cache nếu đã có sẵn
       if (devicesSubGPS && Object.keys(devicesSubGPS).length > 0) {
         subDeviceList.current = devicesSubGPS;
       } else if (subDeviceList.current && Object.keys(subDeviceList.current).length > 0) {
@@ -176,8 +174,7 @@ function AutoLogin() {
 
       const now = new Date();
       const oneMinuteAgo = new Date(now.getTime() - 60 * 1000);
-      // start_time: oneMinuteAgo.toISOString(),
-      // end_time: now.toISOString(),
+ 
       const fromTime = oneMinuteAgo.toISOString();
       const toTime = now.toISOString();
       if (Object.keys(devicesSubGPS).length === 0) return [];
@@ -194,12 +191,23 @@ function AutoLogin() {
               toTime
             );
             if (response?.length > 0) {
-              const { longitude, latitude, gps_datetime } = response[0];
+              // if (alias === "BoDam148") {
+              //   console.log("#### BoDam148 response:", response[response.length - 1]);
+              // }
+              // if (alias === "BB29") {
+              //   console.log("#### BB29 response:", response[response.length - 1]);
+              // }
+              const longitudes = response.map(item => item.longitude);
+              const latitudes = response.map(item => item.latitude);
+
+              const medianLongitude = median(longitudes);
+              const medianLatitude = median(latitudes);
+
               gpsDataList.push({
                 deviceId: alias,
-                lng: longitude,
-                lat: latitude,
-                dateTime: gps_datetime,
+                lng: medianLongitude,
+                lat: medianLatitude,
+                dateTime: toTime,
               });
             } 
           } catch (err) {
@@ -209,9 +217,8 @@ function AutoLogin() {
  
       })
 
-      console.log("#### 📡 mqttClientGPS publish:", gpsDataList);
       mqttClient.current.publish(MQTT_GPS_TOPIC, JSON.stringify(gpsDataList));
-
+      console.log("#### GPS data list:", gpsDataList);
       return gpsDataList;
     } catch (err) {
       console.error("❌ queryRecordGPS failed:", err);
