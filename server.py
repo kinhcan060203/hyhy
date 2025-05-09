@@ -46,7 +46,7 @@ def handle_answer_call(data):
     print(f"📩 Nhận answer call từ {request.sid}: {data}")
     emit("call.answer", data, broadcast=True, include_self=False)
 
-
+# http://45.118.136.10:8006/Device/Gps
 @app.route("/")
 def index():
     return "🔥 WebRTC Signaling Server đang chạy!"

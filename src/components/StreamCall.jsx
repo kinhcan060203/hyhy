@@ -2,7 +2,17 @@ import { useEffect, useState, useRef } from "react";
 import { useParams, useLocation } from "react-router-dom";
 import io from "socket.io-client";
 import { userInfo }  from "../utils/constants";
-import { handleAttemptLogin, handleAttemptLogout } from "../utils/common";
+import Paho from "paho-mqtt";
+import { generateFakeGPSData, median } from "../utils/tool";
+import {
+  handleAttemptLogin,
+  handleAttemptLogout,
+  handleFetchDeviceList,
+  handleFetchSubDeviceList,
+  handleQueryRecordGPS,
+} from "../utils/common";
+
+
 function StreamCall() {
   const { call_type, call_mode } = useParams();
   const query = new URLSearchParams(useLocation().search);
@@ -11,7 +21,18 @@ function StreamCall() {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const remoteAudioRef = useRef(null);
+  const intervalGPSRef = useRef(null);
+  const mqttClient = useRef(null);
+  const subDeviceList = useRef(null);
 
+  const MQTT_BROKER = "103.129.80.171";
+  const MQTT_PORT = "8099";
+  const MQTT_USERNAME = "becaiot";
+  const MQTT_PASSWORD = "becaiot";
+  const MQTT_GPS_TOPIC = "alert-security-gps";
+  const MQTT_TOPIC = "alert-security-media";
+  const MQTT_TOPIC_RESPONSE = "alert-security-media-response";
+  
   const params = {
     hookFlag: query.get("hookFlag"),
     duplexFlag: query.get("duplexFlag"),
@@ -145,7 +166,9 @@ function StreamCall() {
     const loginStatusCallbackId = window.lemon.login.addLoginStatusChangeListener(handleLoginStatusChange);
     setupSocket();
     startCallSession();
-  
+    intervalGPSRef.current = setInterval(() => {
+      queryRecordGPS();
+    }, 60 * 1000);
     return () => {
       window.lemon.login.removeLoginStatusChangeListener(loginStatusCallbackId);
     };
@@ -199,7 +222,106 @@ function StreamCall() {
       setTimeout(initiateCall, 2000);
     }
   };
+  const queryRecordGPS = async () => {
+    try {
+      let devicesSubGPS = await handleFetchDeviceList();
 
+      if (devicesSubGPS && Object.keys(devicesSubGPS).length > 0) {
+        subDeviceList.current = devicesSubGPS;
+      } else if (subDeviceList.current && Object.keys(subDeviceList.current).length > 0) {
+        devicesSubGPS = subDeviceList.current;
+      } else {
+        console.warn("⚠️ Không có thiết bị con để truy vấn GPS");
+        return [];
+      }
+
+      const now = new Date();
+      const oneMinuteAgo = new Date(now.getTime() - 60 * 1000);
+ 
+      const fromTime = oneMinuteAgo.toISOString();
+      const toTime = now.toISOString();
+      if (Object.keys(devicesSubGPS).length === 0) return [];
+
+      let gpsDataList = [];
+      Object.keys(devicesSubGPS).forEach(async (alias) => {
+        const device = devicesSubGPS[alias];
+        let basedata_id = device.basedata_id;
+        if (basedata_id){
+          try {
+            const response = await handleQueryRecordGPS(
+              basedata_id,
+              fromTime,
+              toTime
+            );
+            if (response?.length > 0) {
+              // if (alias === "BoDam148") {
+              //   console.log("#### BoDam148 response:", response[response.length - 1]);
+              // }
+              // if (alias === "BB29") {
+              //   console.log("#### BB29 response:", response[response.length - 1]);
+              // }
+              const longitudes = response.map(item => item.longitude);
+              const latitudes = response.map(item => item.latitude);
+
+              const medianLongitude = median(longitudes);
+              const medianLatitude = median(latitudes);
+
+              gpsDataList.push({
+                deviceId: alias,
+                lng: medianLongitude,
+                lat: medianLatitude,
+                dateTime: toTime,
+              });
+            } 
+          } catch (err) {
+            console.error(`##### ❌ Failed to get GPS for device ${alias}:`, err);
+          }
+        }
+ 
+      })
+
+      mqttClient.current.publish(MQTT_GPS_TOPIC, JSON.stringify(gpsDataList));
+      console.log("#### GPS data list:", gpsDataList);
+      return gpsDataList;
+    } catch (err) {
+      console.error("❌ queryRecordGPS failed:", err);
+      return [];
+    }
+  };
+
+  useEffect(() => {
+  
+      const clientId = "client-" + Math.random();
+      const mqtt_client = new Paho.Client(
+        `ws://${MQTT_BROKER}:${MQTT_PORT}/ws`,
+        clientId
+      );
+      mqttClient.current = mqtt_client;
+  
+      mqtt_client.onConnectionLost = (responseObject) => {
+        console.warn("📡 MQTT Connection lost:", responseObject.errorMessage);
+      };
+  
+  
+      mqtt_client.connect({
+        onSuccess: () => {
+          console.log("✅ MQTT Connected:", clientId);
+          mqtt_client.subscribe(MQTT_TOPIC);
+        },
+        onFailure: (error) => {
+          console.error("❌ MQTT Connection failed:", error.errorMessage);
+        },
+        userName: MQTT_USERNAME,
+        password: MQTT_PASSWORD,
+        reconnect: true,
+        keepAliveInterval: 10,
+      });
+  
+      return () => {
+        console.log("🔌 Disconnecting MQTT...");
+        mqtt_client.disconnect();
+      };
+    }, []);
   return (
     <div className="flex items-center justify-center h-screen bg-black relative w-full">
       {statusMap === "idle" && <h1 className="text-white text-3xl font-bold absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">Connecting...</h1>}
