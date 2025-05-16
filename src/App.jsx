@@ -10,10 +10,10 @@ function App() {
      
       <Routes>
         <Route
-          path="/stream/:call_type/:call_mode/"
+          path="/sdk/stream/:call_type/:call_mode/"
           element={<StreamCall />}
         />
-        <Route path="/auto" element={<Auto />} />
+        <Route path="/sdk" element={<Auto />} />
         <Route path="/demo" element={<DemoSDK />} />
       </Routes>
     </>

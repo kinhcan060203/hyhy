@@ -2,24 +2,34 @@
 
 // Handles login attempt with retry logic
 export const handleAttemptLogin = async (userInfo) => {
-  console.log("🔐 Attempting login:", userInfo);
-  try {
-    const response = await window.lemon.login.login(userInfo);
-    if (response.result !== 0) {
-      console.warn("❌ Login failed, retrying...");
-      setTimeout(handleAttemptLogin(userInfo), 1000);
-    } else {
-      console.log("✅ Login successful");
+    
+    while (true) {
+      try {
+        const response = await window.lemon.login.login(userInfo);
+        if (response.result === 0) {
+          console.log("✅ Login successful");
+          return response;
+        } else {
+          console.warn("❌ Login failed, retrying in 1s...");
+        }
+      } catch (error) {
+        console.error("🚫 Login error, retrying in 1s...", error);
+      }
+  
+      // Chờ 1 giây rồi thử lại
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
-  } catch (error) {
-    console.error("🚫 Login error, retrying...", error);
-    setTimeout(handleAttemptLogin(userInfo), 1000);
-  }
-};
+  };
+  
+export const getAccountInfo = async () => {
+    const resp = await window.lemon.login.getLoginAccountInfo()
+    return resp?.account_info?.token;
+
+}
+
 
 // Handles logout
 export const handleAttemptLogout = async () => {
-  console.log("👋 Logging out");
   await window.lemon.login.logout();
 };
 
@@ -30,6 +40,7 @@ export const handleFetchDeviceList = async () => {
       page_size: 200,
       page_index: 1,
     });
+    console.log("###### 🚀 handleFetchDeviceList response:", resp) ;
     if (!resp.device_list) {
       console.warn("⚠️ No devices found");
       return null;
