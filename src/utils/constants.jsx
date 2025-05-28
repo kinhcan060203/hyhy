@@ -8,6 +8,7 @@ export const USER_INFO = {
     pwdNeedEncrypt: false,
   };
 
+export const GPS_SUBSCRIPTION_INTERVAL = 30 * 1000;
 
 export const MQTT_CONFIG_DEV = {
   MQTT_BROKER: "ws://103.129.80.171:8099/ws",

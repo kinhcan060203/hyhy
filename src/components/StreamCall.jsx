@@ -7,7 +7,7 @@ import {
   handleFetchDeviceList,
   handleQueryRecordGPS,
 } from "../utils/common";
-import {USER_INFO, MQTT_CONFIG_DEV, MQTT_CONFIG_PROD, CALL_CONFIG_DEFAULT, WS_ENDPOINT} from "../utils/constants"
+import {USER_INFO, MQTT_CONFIG_DEV, MQTT_CONFIG_PROD, GPS_SUBSCRIPTION_INTERVAL, WS_ENDPOINT} from "../utils/constants"
 import {connectSocket} from "../utils/function";
 
 function StreamCall() {
@@ -211,7 +211,7 @@ const setupSocket = () => {
     startCallSession();
     intervalGPSRef.current = setInterval(() => {
       queryRecordGPS();
-    }, 30 * 1000);
+    }, GPS_SUBSCRIPTION_INTERVAL);
     return () => {
       window.lemon.login.removeLoginStatusChangeListener(loginStatusCallbackId?.current);
     };
@@ -309,7 +309,7 @@ const setupSocket = () => {
       console.log("#### 📡 devicesSubGPS:", devicesSubGPS);
 
       const now = new Date();
-      const oneMinuteAgo = new Date(now.getTime() - 30 * 1000);
+      const oneMinuteAgo = new Date(now.getTime() - GPS_SUBSCRIPTION_INTERVAL);
  
       const fromTime = oneMinuteAgo.toISOString();
       const toTime = now.toISOString();

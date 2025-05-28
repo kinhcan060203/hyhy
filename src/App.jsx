@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from "react";
 import "./App.css";
-import DemoSDK from "./components/DemoSDK";
+// import DemoSDK from "./components/DemoSDK";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Auto from "./components/Auto";
 import StreamCall from "./components/StreamCall";
@@ -14,7 +14,7 @@ function App() {
           element={<StreamCall />}
         />
         <Route path="/sdk" element={<Auto />} />
-        <Route path="/demo" element={<DemoSDK />} />
+        {/* <Route path="/demo" element={<DemoSDK />} /> */}
       </Routes>
     </>
   );

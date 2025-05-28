@@ -6,5 +6,15 @@ export default defineConfig({
   plugins: [
     react()
   ],
-  base: '/sdk'
+  base: '/sdk',
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          lemon: ['littleLemon.js'],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 1500
+  },
 })

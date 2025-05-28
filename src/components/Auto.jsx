@@ -10,7 +10,7 @@ import {
 import { generateFakeGPSData, median } from "../utils/tool";
 import { connectSocket } from "../utils/function";
 
-import {USER_INFO, MQTT_CONFIG_DEV, MQTT_CONFIG_PROD, CALL_CONFIG_DEFAULT, WS_ENDPOINT} from "../utils/constants"
+import {USER_INFO, MQTT_CONFIG_DEV, MQTT_CONFIG_PROD, CALL_CONFIG_DEFAULT, WS_ENDPOINT, GPS_SUBSCRIPTION_INTERVAL} from "../utils/constants"
 
 function AutoLogin() {
 
@@ -183,7 +183,7 @@ function AutoLogin() {
       }
 
       const now = new Date();
-      const oneMinuteAgo = new Date(now.getTime() - 30 * 1000);
+      const oneMinuteAgo = new Date(now.getTime() - GPS_SUBSCRIPTION_INTERVAL);
  
       const fromTime = oneMinuteAgo.toISOString();
       const toTime = now.toISOString();
@@ -276,7 +276,7 @@ function AutoLogin() {
     setupWebSocket();
     intervalGPSRef.current = setInterval(() => {
       queryRecordGPS();
-    }, 30 * 1000);
+    }, GPS_SUBSCRIPTION_INTERVAL);
 
     loginCheckRef.current = setInterval(() => {
         handleLogin(USER_INFO);
@@ -345,7 +345,6 @@ function AutoLogin() {
           }
       }
     }
-    console.log("### mqtt_client",mqtt_client)
     return mqtt_client;
 
   } 
