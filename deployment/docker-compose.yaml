@@ -2,7 +2,7 @@ name: smart-sdk-manager
 services:
   smart-sdk:
     container_name: smart-sdk
-    image: smart/sdk:v0.0.1
+    image: smart-sdk:v0.0.1
     build:
       context: ..
       dockerfile: deployment/web/Dockerfile
@@ -18,9 +18,9 @@ services:
       driver: "json-file"
       options:
         max-size: "50m"
-  server-sdk:
-    container_name: server-sdk
-    image: smart/sdk/server:v0.0.1
+  smart-server-sdk:
+    container_name: smart-server-sdk
+    image: smart-sdk-server:v0.0.1
     build:
       context: ..
       dockerfile: deployment/server/Dockerfile
@@ -28,6 +28,8 @@ services:
       - "6173:6173"
     networks:
       - smart-sdk
+    volumes:
+      - ../src/python:/app
     tty: true
     restart: unless-stopped
     logging:

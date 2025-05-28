@@ -1,17 +1,14 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, useLocation } from "react-router-dom";
-import io from "socket.io-client";
-import { userInfo }  from "../utils/constants";
-import Paho from "paho-mqtt";
-import { generateFakeGPSData, median } from "../utils/tool";
+import { median } from "../utils/tool";
 import {
   handleAttemptLogin,
   handleAttemptLogout,
   handleFetchDeviceList,
-  handleFetchSubDeviceList,
   handleQueryRecordGPS,
 } from "../utils/common";
-
+import {USER_INFO, MQTT_CONFIG_DEV, MQTT_CONFIG_PROD, CALL_CONFIG_DEFAULT, WS_ENDPOINT} from "../utils/constants"
+import {connectSocket} from "../utils/function";
 
 function StreamCall() {
   const { call_type, call_mode } = useParams();
@@ -26,15 +23,9 @@ function StreamCall() {
   const subDeviceList = useRef(null);
   const sessionId = useRef(null);
 
-  
-  const MQTT_BROKER = "103.129.80.171";
-  const MQTT_PORT = "8099";
-  const MQTT_USERNAME = "becaiot";
-  const MQTT_PASSWORD = "becaiot";
-  const MQTT_GPS_TOPIC = "alert-security-gps";
-  const MQTT_TOPIC = "alert-security-media";
-  const MQTT_TOPIC_RESPONSE = "alert-security-media-response";
-  
+  const mqttClientDev = useRef(null);
+  const mqttClientProd = useRef(null);
+
   const params = {
     hookFlag: query.get("hookFlag"),
     duplexFlag: query.get("duplexFlag"),
@@ -139,8 +130,8 @@ function StreamCall() {
     if ([0, 2, 3].includes(loginStatus.login_status)) {
       console.log("### 📞 Login status changed:", statusMap, statusMapRef?.current);
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      if (basedataId.current === sessionStorage.getItem("basedata_id") && statusMapRef?.current !== "stopped") {
-        await handleAttemptLogin(userInfo);
+      if (basedataId.current === sessionStorage.getItem("basedata_id") && statusMapRef?.current !== "stopped" && statusMapRef?.current !== "disconnected") {
+        await handleAttemptLogin(USER_INFO);
         await setupCallHandlers();
         setStatusMap("calling");
         statusMapRef.current = "calling";
@@ -148,41 +139,70 @@ function StreamCall() {
       }
     }
   };
-  function startCallSession() {
+  async function startCallSession() {
     if (call_mode === "0") {
-        initiateCall();
+        await initiateCall();
     } else if (call_mode === "1") {
-        handleAnswerCall();
+        await handleAnswerCall();
     }
   }
-  const setupSocket = () => {
-    const SOCKET_URL = "http://192.168.101.3:6173";
+const setupSocket = () => {
+  const newSocket = new WebSocket(WS_ENDPOINT);
+  socket.current = newSocket;
 
-    const newSocket = io(SOCKET_URL, {
-      transports: ["websocket"],
-      reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 2000,
-    });
-    socket.current = newSocket;
-  
-    newSocket.on("connect", () => console.log("✅ WebSocket Connected"));
-  
-    newSocket.on("call", async (offer) => {
-      console.log("### 📥 Received OFFER:", offer);
-      const bdata_id = offer.basedata_id;
-      const session_id = offer.session_id;
-      console.log("##### 📥 Received OFFER basedata_id:", bdata_id);
-      basedataId.current = bdata_id;
-      if (bdata_id === sessionStorage.getItem("basedata_id")) {
-        startCallSession();
-      } else {
-        handleAttemptLogout();
-      }
-    });
-  
-    newSocket.emit("call", { status: "call", basedata_id: params.basedata_id, session_id: sessionId?.current });
+  newSocket.onopen = () => {
+    const callData = {
+      type: "call.event",
+      data: {
+        status: "call",
+        basedata_id: params.basedata_id,
+        session_id: sessionId?.current,
+      },
+    };
+    console.log("#### WebSocket Connected", callData);
+    newSocket.send(JSON.stringify(callData));
   };
+
+  newSocket.onmessage = async (event) => {
+    try {
+      const data = JSON.parse(event.data);
+
+      if (data.type === "call.event") {
+        const offer = data.data;
+        console.log("### 📥 Received OFFER:", offer);
+        const bdata_id = offer.basedata_id;
+        const session_id = offer.session_id;
+
+        basedataId.current = bdata_id;
+        console.log("### 📥 session_id === params.session_id:", session_id === params.session_id);
+        if (bdata_id === sessionStorage.getItem("basedata_id") && (session_id === params.session_id)) {
+          await startCallSession();
+        } else {
+            window.lemon.login.removeLoginStatusChangeListener(loginStatusCallbackId.current);
+            // await sleep 1 second
+            if (remoteVideoRef?.current) {
+                remoteVideoRef.current.srcObject = null;
+            }
+            statusMapRef.current = "disconnected";
+            setStatusMap("disconnected");
+            console.log("### 📥 Ignoring message for different basedata_id or session_id");
+
+        }
+      }
+    } catch (error) {
+      console.error("❌ Error parsing message:", error);
+    }
+  };
+
+  newSocket.onclose = () => {
+    console.log("🔌 WebSocket Disconnected");
+  };
+
+  newSocket.onerror = (error) => {
+    console.error("❌ WebSocket error:", error);
+  };
+};
+
   
   useEffect(() => {
     sessionStorage.setItem("basedata_id", params.basedata_id);
@@ -191,21 +211,38 @@ function StreamCall() {
     startCallSession();
     intervalGPSRef.current = setInterval(() => {
       queryRecordGPS();
-    }, 60 * 1000);
+    }, 30 * 1000);
     return () => {
       window.lemon.login.removeLoginStatusChangeListener(loginStatusCallbackId?.current);
     };
   }, []);
   const onUnload = async () => {
-    console.log("### Unloading"); 
+    console.log("### Unloading", statusMapRef.current); 
     window.lemon.login.removeLoginStatusChangeListener(loginStatusCallbackId?.current);
     console.log("### Iframe or page is unloading", params.session_id); 
-    if (socket?.current) {
-      socket?.current.emit('call', { status:"idle", basedata_id: null, session_id: params.session_id });   
+    if (statusMapRef.current === "disconnected") {
+      console.log("### Already disconnected, no need to close WebSocket");
+      return;
     }
+    if (socket.current) {
+      console.log("### Closing WebSocket connection");
+      socket.current?.send(
+        JSON.stringify({
+          type: "call.event",
+          data: {
+            status: "idle",
+            basedata_id: null,
+            session_id: params.session_id,
+          }
+        }
+      )
+    );
+    }
+      
     console.log("### Unloaded"); 
-    statusMapRef.current = "stopped";
-    await handleAttemptLogout();
+
+    // await handleAttemptLogout();
+    
 
   };
 
@@ -225,7 +262,7 @@ function StreamCall() {
   const initiateCall = async () => {
     setStatusMap("calling");
     statusMapRef.current = "calling";
-    await handleAttemptLogin(userInfo);
+    await handleAttemptLogin(USER_INFO);
     await setupCallHandlers();
     setTimeout(() => startVideoCall(params.hookFlag), 1000);
   };
@@ -239,6 +276,7 @@ function StreamCall() {
         video_frame_size: 3,
         hook_flag: +hook_flag,
       });
+      console.log("###### Response from makeVideoCall:", resp);
       if (resp.result !== 0) {
         console.log("###### Error making call:", resp);
         setStatusMap("stopped");
@@ -257,70 +295,66 @@ function StreamCall() {
       setTimeout(initiateCall, 2000);
     }
   };
-  const queryRecordGPS = async () => {
+   const queryRecordGPS = async () => {
     try {
       let devicesSubGPS = await handleFetchDeviceList();
-
       if (devicesSubGPS && Object.keys(devicesSubGPS).length > 0) {
         subDeviceList.current = devicesSubGPS;
       } else if (subDeviceList.current && Object.keys(subDeviceList.current).length > 0) {
         devicesSubGPS = subDeviceList.current;
       } else {
-        console.warn("⚠️ Không có thiết bị con để truy vấn GPS");
+        console.warn("#### ⚠️ Không có thiết bị con để truy vấn GPS");
         return [];
       }
+      console.log("#### 📡 devicesSubGPS:", devicesSubGPS);
 
       const now = new Date();
-      const oneMinuteAgo = new Date(now.getTime() - 60 * 1000);
+      const oneMinuteAgo = new Date(now.getTime() - 30 * 1000);
  
       const fromTime = oneMinuteAgo.toISOString();
       const toTime = now.toISOString();
       if (Object.keys(devicesSubGPS).length === 0) return [];
 
       let gpsDataList = [];
-      Object.keys(devicesSubGPS).forEach(async (alias) => {
+
+      for (const alias of Object.keys(devicesSubGPS)) {
         const device = devicesSubGPS[alias];
         let basedata_id = device.basedata_id;
-        if (basedata_id){
+        if (basedata_id) {
           try {
+            // await new Promise(resolve => setTimeout(resolve, 10));
             const response = await handleQueryRecordGPS(
               basedata_id,
               fromTime,
               toTime
             );
             if (response?.length > 0) {
-              // if (alias === "BoDam148") {
-              //   console.log("#### BoDam148 response:", response[response.length - 1]);
-              // }
-              // if (alias === "BB29") {
-              //   console.log("#### BB29 response:", response[response.length - 1]);
-              // }
               const longitudes = response.map(item => item.longitude);
               const latitudes = response.map(item => item.latitude);
-
               const medianLongitude = median(longitudes);
               const medianLatitude = median(latitudes);
-
+      
               gpsDataList.push({
                 deviceId: alias,
                 lng: medianLongitude,
                 lat: medianLatitude,
                 dateTime: toTime,
               });
-            } 
+            }
           } catch (err) {
             console.error(`##### ❌ Failed to get GPS for device ${alias}:`, err);
           }
         }
- 
-      })
+      }
+      
       if (gpsDataList.length === 0) {
         console.warn("#### ⚠️ Không có dữ liệu GPS nào được tìm thấy");
         return [];
       }
 
-      mqttClient.current.publish(MQTT_GPS_TOPIC, JSON.stringify(gpsDataList));
-      console.log("#### GPS data list:", gpsDataList);
+      mqttClientProd.current?.publish(MQTT_CONFIG_PROD.MQTT_GPS_TOPIC, JSON.stringify(gpsDataList));
+      mqttClientDev.current?.publish(MQTT_CONFIG_DEV.MQTT_GPS_TOPIC, JSON.stringify(gpsDataList));
+      console.log("#### 📡 GPS data:", gpsDataList);
       return gpsDataList;
     } catch (err) {
       console.error("❌ queryRecordGPS failed:", err);
@@ -330,35 +364,32 @@ function StreamCall() {
 
   useEffect(() => {
   
-      const clientId = "client-" + Math.random();
-      const mqtt_client = new Paho.Client(
-        `ws://${MQTT_BROKER}:${MQTT_PORT}/ws`,
-        clientId
-      );
-      mqttClient.current = mqtt_client;
-  
-      mqtt_client.onConnectionLost = (responseObject) => {
-        console.warn("📡 MQTT Connection lost:", responseObject.errorMessage);
-      };
-  
-  
-      mqtt_client.connect({
-        onSuccess: () => {
-          console.log("✅ MQTT Connected:", clientId);
-          mqtt_client.subscribe(MQTT_TOPIC);
-        },
-        onFailure: (error) => {
-          console.error("❌ MQTT Connection failed:", error.errorMessage);
-        },
-        userName: MQTT_USERNAME,
-        password: MQTT_PASSWORD,
-        reconnect: true,
-        keepAliveInterval: 10,
-      });
-  
+    const clientId = `${Math.random()}`;
+    sessionId.current = clientId;
+    
+    const mqtt_client_dev = connectSocket(
+      clientId,
+      MQTT_CONFIG_DEV.MQTT_BROKER,
+      MQTT_CONFIG_DEV.MQTT_USERNAME,
+      MQTT_CONFIG_DEV.MQTT_PASSWORD,
+      MQTT_CONFIG_DEV.MQTT_TOPIC
+    );
+
+    const mqtt_client_prod = connectSocket(
+      clientId,
+      MQTT_CONFIG_PROD.MQTT_BROKER,
+      MQTT_CONFIG_PROD.MQTT_USERNAME,
+      MQTT_CONFIG_PROD.MQTT_PASSWORD,
+      MQTT_CONFIG_PROD.MQTT_TOPIC
+    );
+    
+    mqttClientDev.current = mqtt_client_dev;
+    mqttClientProd.current = mqtt_client_prod;
+
       return () => {
-        console.log("🔌 Disconnecting MQTT...");
-        mqtt_client.disconnect();
+        console.log("🔌 Disconnected MQTT...");
+        mqttClientDev.current?.close();
+        mqttClientProd.current?.close();
       };
     }, []);
   return (
@@ -367,7 +398,7 @@ function StreamCall() {
       {statusMap === "calling" && <h1 className="text-white text-3xl font-bold absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">Calling...</h1>}
       {statusMap === "stopped" && <h1 className="text-white text-3xl font-bold absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">Stopped...</h1>}
       {statusMap === "waiting" && <h1 className="text-white text-3xl font-bold absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">Waiting...</h1>}
-      {statusMap === "disconnecting" && <h1 className="text-white text-3xl font-bold absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">Disconnecting...</h1>}
+      {statusMap === "disconnected" && <h1 className="text-white text-3xl font-bold absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">Disconnected...</h1>}
 
       <video ref={remoteVideoRef} crossOrigin="anonymous" autoPlay playsInline className="w-full h-full object-cover" />
       <audio ref={remoteAudioRef} crossOrigin="anonymous" autoPlay />

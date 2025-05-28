@@ -8,7 +8,7 @@ export const generateFakeGPSData = (deviceCount = 5) => {
     const timePart = timePartWithZ.split(".")[0];
     for (let i = 0; i < deviceCount; i++) {
       const fakeDevice = {
-        deviceId: `BoDam${144 + i}`,
+        deviceId: `BoDam${i}`,
         lng: 105.8 + Math.random() * 0.01,
         lat: 21.0 + Math.random() * 0.01,
         dateTime: `${datePart} ${timePart}Z`,
